@@ -1,3 +1,20 @@
+## 设计改进 #1/#2: 告警通知 + 一键部署 (本轮)
+
+### #1 关键事件 → Webhook 告警 (此前系统没有任何通知机制, 键全死也没人知道)
+- 新增 `notifierService`: settings.notify_webhook_url / 环境变量 HUB_NOTIFY_WEBHOOK 配置; 载荷按 URL 自动识别 (飞书/企业微信/钉钉/通用 JSON); 同 dedupKey 10 分钟去重; 通知是旁路, 失败只记日志绝不影响主流程
+- 告警事件: key 被标记 failed (resolver 永久跳过前让人知道) / 上游401 / 额度耗尽 / 全部 Key 不可用 (5分钟健康检查发现) / 备份失败
+- Admin API: GET/PUT `/api/admin/notify/config` + POST `/api/admin/notify/test` (均需登录)
+- Dashboard 新增「告警通知 (Webhook)」卡片: 填地址 → 保存 → 发送测试
+- 验证: 单测8例全绿; 线上 E2E 容器→宿主机 webhook 实测送达+去重+配置读写
+- 设计说明: `notify()` 读 settings 是运行时热配置, 页面保存后立即生效, 无需重启
+
+### #2 一键部署 `scripts/deploy.sh` (手工 docker cp 时代结束, 孤儿迁移事故根因封堵)
+- 流程: 干净构建(tsc+vite+同步静态) → **dist 与 src 迁移清单一致性校验 (孤儿文件防线, 违背即拒绝部署)** → 备份容器当前 dist 到 .deploy-backups/ (回滚点) → 清前端缓存目录再推送 → 重启 → /health 门禁 (healthy + migrations_pending=0, 30s) → 失败自动回滚并重启
+- 首次实战即通过 (1 秒过门禁)
+- git 初始化: baseline `93ea180`, .gitignore 已含 data//master.key/构建产物/回滚点 (暂存区验证无密钥)
+
+---
+
 ## 四审计批量修复 (安全 / 运维 / 路由 / 前后端契约)
 
 四个只读审计 agent 并行审查后的修复批量; 全部经 npm test 全绿 (exit 0)。
