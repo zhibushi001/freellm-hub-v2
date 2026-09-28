@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+freellm-hub-client/node_modules/
+
+# Build output
+dist/
+freellm-hub-client/dist/
+coverage/
+
+# Data / secrets — 永远不要提交
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+master.key
+session.secret
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Backups (数据库 dump、tar.gz)
+backup/
+*.tgz
+*.tar.gz
+*.bak
+*.bak*
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+._*
+Thumbs.db
+
+# Test / coverage
+.nyc_output/
+
+# BuildKit
+buildkitd.toml
+
+# TypeScript
+*.tsbuildinfo
+
+# 部署回滚点 (deploy.sh 生成)
+.deploy-backups/
+
+# 前端构建缓存 (copy-assets 每次重建)
+src/public/admin/

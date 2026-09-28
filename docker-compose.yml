@@ -1,0 +1,31 @@
+services:
+  hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # BuildKit 国内镜像加速 (镜像源优先级: fnnas > dockerproxy > 1ms > daocloud)
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: freellm-hub-v2:latest
+    container_name: freellm-hub
+    restart: unless-stopped
+    ports:
+      - "3303:3030"
+    # ops#9 对齐实际部署: 容器一直用 named volume (freellm-hub-data),
+    # 仓库 ./data/ 是陈旧残留且 master.key 不同 (容器卷 Sep15 vs ./data Sep12) — 千万别挂回来
+    volumes:
+      - freellm-hub-data:/app/data
+    environment:
+      - HUB_PORT=3030
+      - HUB_HOST=0.0.0.0
+      - HUB_PUBLIC_URL=
+      - HUB_DATA_DIR=/app/data
+      - TZ=${TZ:-Asia/Shanghai}
+      # 不设 NODE_ENV: 容器当前日志是 pino-pretty 人类可读格式, 设了 production 会变 JSON
+      - LOG_LEVEL=info
+    # 镜像内置 node http 健康检查 (镜像里没有 curl, 这里不覆盖)
+    # Docker stop 默认 grace 10s 不够等在途请求, compose 重建时给足60s
+    stop_grace_period: 60s
+
+volumes:
+  freellm-hub-data:
