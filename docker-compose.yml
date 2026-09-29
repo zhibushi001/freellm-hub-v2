@@ -1,3 +1,5 @@
+# FreeLLM Hub · docker compose 部署 — 默认值开箱即用 (端口 3030)
+# 需要自定义端口/备份目录: cp .env.example .env (.env 不会进 git)
 services:
   hub:
     build:
@@ -10,13 +12,13 @@ services:
     container_name: freellm-hub
     restart: unless-stopped
     ports:
-      - "3303:3030"
-    # ops#9 对齐实际部署: 容器一直用 named volume (freellm-hub-data),
-    # 仓库 ./data/ 是陈旧残留且 master.key 不同 (容器卷 Sep15 vs ./data Sep12) — 千万别挂回来
+      # 宿主机端口默认 3030, 可在 .env 用 HUB_HOST_PORT 覆盖
+      - "${HUB_HOST_PORT:-3030}:3030"
+    # named volume 存数据库/密钥/会话; 首次使用先: docker volume create freellm-hub-data
     volumes:
       - freellm-hub-data:/app/data
-      # 改进 #3: 备份放到卷外的宿主机目录 (同卷备份 = 卷丢全丢)
-      - /vol1/@appshare/fn-deepseek-harness/hub-backups:/app/backups
+      # 备份放数据卷之外的宿主机目录 (卷丢不影响备份); 路径可用 .env 的 HUB_BACKUP_DIR_HOST 覆盖
+      - ${HUB_BACKUP_DIR_HOST:-./hub-backups}:/app/backups
     environment:
       - HUB_BACKUP_DIR=/app/backups
       - HUB_PORT=3030
@@ -31,7 +33,7 @@ services:
     stop_grace_period: 60s
 
 volumes:
-  # 必须 external: 容器最初用 docker run -v freellm-hub-data 创建,
-  # 裸名会被 compose 加项目前缀 (freellm-hub-v2_freellm-hub-data) 指向空卷!
+  # external: 首次使用先 docker volume create freellm-hub-data;
+  # 同时防止 compose 给卷名加项目前缀 (裸名会指向一个空的新卷)
   freellm-hub-data:
     external: true

@@ -10,7 +10,7 @@ import {
   toAnthropicError,
   openAISseToAnthropicSse,
   type AnthropicRequest,
-} from '/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/adapters/anthropic.js';
+} from '../../src/adapters/anthropic.js';
 
 describe('Anthropic 适配器: 入站 (Anthropic → OpenAI)', () => {
   it('基本: messages + system string + max_tokens', () => {

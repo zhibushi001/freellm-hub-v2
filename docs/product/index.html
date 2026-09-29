@@ -199,7 +199,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;background:rgba(255,
     </div>
     <div class="nav-act">
       <button class="btn" id="langBtn">中 / EN</button>
-      <a class="btn" href="https://github.com/zhibushi" target="_blank" rel="noopener">⭐ GitHub</a>
+      <a class="btn" href="https://github.com/zhibushi001/freellm-hub-v2" target="_blank" rel="noopener">⭐ GitHub</a>
     </div>
   </div>
 </nav>
@@ -237,8 +237,8 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;background:rgba(255,
             <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
             <span class="t">~/freellm-hub</span>
           </div>
-<pre><span class="c-prompt">$</span> <span class="c-cmd">docker run -d -p 3030:3030 \
-    -v ./data:/app/data freellm-hub</span>
+<pre><span class="c-prompt">$</span> <span class="c-cmd">git clone &lt;repo&gt; freellm-hub &amp;&amp; cd freellm-hub</span>
+<span class="c-prompt">$</span> <span class="c-cmd">docker compose up -d --build</span>
 <span class="c-ok">✓ healthy</span> <span class="c-mut">migrations_pending=0  version=2.0.0</span>
 
 <span class="c-prompt">$</span> <span class="c-cmd">curl $HUB/v1/chat/completions \
@@ -401,21 +401,21 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;background:rgba(255,
     <div class="pane on" id="p1">
       <div class="codecard">
         <button class="copy" data-copy="c1">复制 / Copy</button>
-        <pre id="c1"><span class="c-prompt">$</span> mkdir -p ~/freellm-hub &amp;&amp; cd ~/freellm-hub
-<span class="c-prompt">$</span> docker run -d \
-    --name freellm-hub \
-    --restart unless-stopped \
-    -p 3030:3030 \
-    -v <span class="c-key">$(pwd)</span>/data:/app/data \
-    -e TZ=Asia/Shanghai \
-    ghcr.io/zhibushi001/freellm-hub:v2.0.0
+        <pre id="c1"><span class="c-prompt">$</span> git clone https://github.com/zhibushi001/freellm-hub-v2.git
+<span class="c-prompt">$</span> cd freellm-hub-v2
+
+<span class="c-mut"># 数据卷 (只需首次执行一次)</span>
+<span class="c-prompt">$</span> docker volume create freellm-hub-data
+
+<span class="c-mut"># 构建并启动 (首次构建约 1~2 分钟)</span>
+<span class="c-prompt">$</span> docker compose up -d --build
 
 <span class="c-mut"># 等几秒后访问</span>
 <span class="c-prompt">$</span> open http://localhost:3030</pre>
       </div>
       <div class="note">
-        <span class="lang zh">数据全部落在挂载的 data/ 目录：数据库、加密主密钥、每日备份。升级只需换镜像版本。</span>
-        <span class="lang en">Everything lives in the mounted data/ directory: database, encryption master key, daily backups. Upgrading = new image tag.</span>
+        <span class="lang zh">数据存在数据卷 freellm-hub-data（数据库 + 加密主密钥）与 ./hub-backups（每日备份，落在数据卷之外）。升级 = git pull 后重新 docker compose up -d --build。</span>
+        <span class="lang en">Data lives in the freellm-hub-data volume (database + master key) and ./hub-backups (daily backups, outside the volume). Upgrade = git pull + docker compose up -d --build.</span>
       </div>
     </div>
 
@@ -599,7 +599,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;background:rgba(255,
         <div>
           <h5><span class="lang zh">关于</span><span class="lang en">About</span></h5>
           <ul>
-            <li><a href="https://github.com/zhibushi" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://github.com/zhibushi001/freellm-hub-v2" target="_blank" rel="noopener">GitHub</a></li>
             <li><a href="https://www.zhibushi.com" target="_blank" rel="noopener">zhibushi.com</a></li>
             <li><a href="../../LICENSE">MIT License</a></li>
           </ul>

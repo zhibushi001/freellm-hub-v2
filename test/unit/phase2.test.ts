@@ -27,18 +27,18 @@ describe('phase 2: cooldown ladder', () => {
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'hub-test-'));
     process.env.HUB_DATA_DIR = dataDir;
-    const { runMigrations } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/migrations/runner.js');
+    const { runMigrations } = await import('../../src/db/migrations/runner.js');
     db = new DatabaseSync(join(dataDir, 'hub.db'));
     process.env.HUB_SKIP_SEED = process.env.HUB_SKIP_SEED ?? '1'; runMigrations(db);
-    const conn = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/connection.js');
+    const conn = await import('../../src/db/connection.js');
     conn.setDbForTest(db);
     // 评分排序现在真实生效 (Thompson 探索会让等分 key 随机换序) —
     // 测试断言基于输入序 (A1 先试), 用 priority 策略固定排序 = 输入序
-    const settingsRepo = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/settings.js');
+    const settingsRepo = await import('../../src/db/repos/settings.js');
     settingsRepo.setSetting('routing_strategy', 'priority');
-    const providers = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/providers.js');
-    const channels = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/channels.js');
-    const keys = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/keys.js');
+    const providers = await import('../../src/db/repos/providers.js');
+    const channels = await import('../../src/db/repos/channels.js');
+    const keys = await import('../../src/db/repos/keys.js');
     // 004 seed migration 也跑, 用 unique name 避免 UNIQUE 冲突
     const uniq = 'p' + Math.random().toString(36).slice(2, 8);
     const p = providers.createProvider({ name: 'test-' + uniq, base_url: 'https://api.test/v1' });
@@ -51,27 +51,27 @@ describe('phase 2: cooldown ladder', () => {
   it('1st hit → 2 min (ladder 第 1 阶)', async () => {
     // freellmapi design: ladder 从 2 min 开始 (第 1 阶 = 2m, 不是 90s)
     // 90s 是 fallback (hits=0 时的默认)
-    const { recordCooldownHit, getEscalationLadderDuration } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const { recordCooldownHit, getEscalationLadderDuration } = await import('../../src/db/repos/cooldowns.js');
     recordCooldownHit(1);
     const d = getEscalationLadderDuration(1);
     assert.equal(d, 2 * 60 * 1000);
   });
 
   it('0 hits → 90s 默认 (没记录, fallback)', async () => {
-    const { getEscalationLadderDuration } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const { getEscalationLadderDuration } = await import('../../src/db/repos/cooldowns.js');
     const d = getEscalationLadderDuration(1);
     assert.equal(d, 90_000);
   });
 
   it('2 hits → 10 min (ladder[1])', async () => {
-    const { recordCooldownHit, getEscalationLadderDuration } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const { recordCooldownHit, getEscalationLadderDuration } = await import('../../src/db/repos/cooldowns.js');
     recordCooldownHit(1);
     recordCooldownHit(1);
     assert.equal(getEscalationLadderDuration(1), 10 * 60 * 1000);
   });
 
   it('3 hits → 1h (ladder[2])', async () => {
-    const { recordCooldownHit, getEscalationLadderDuration } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const { recordCooldownHit, getEscalationLadderDuration } = await import('../../src/db/repos/cooldowns.js');
     recordCooldownHit(1);
     recordCooldownHit(1);
     recordCooldownHit(1);
@@ -79,19 +79,19 @@ describe('phase 2: cooldown ladder', () => {
   });
 
   it('4 hits → 24h (ladder[3])', async () => {
-    const { recordCooldownHit, getEscalationLadderDuration } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const { recordCooldownHit, getEscalationLadderDuration } = await import('../../src/db/repos/cooldowns.js');
     for (let i = 0; i < 4; i++) recordCooldownHit(1);
     assert.equal(getEscalationLadderDuration(1), 24 * 60 * 60 * 1000);
   });
 
   it('5+ hits → 24h (cap)', async () => {
-    const { recordCooldownHit, getEscalationLadderDuration } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const { recordCooldownHit, getEscalationLadderDuration } = await import('../../src/db/repos/cooldowns.js');
     for (let i = 0; i < 5; i++) recordCooldownHit(1);
     assert.equal(getEscalationLadderDuration(1), 24 * 60 * 60 * 1000);
   });
 
   it('成功 (clearCooldownHits) 后 ladder 重置', async () => {
-    const { recordCooldownHit, clearCooldownHits, getEscalationLadderDuration } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const { recordCooldownHit, clearCooldownHits, getEscalationLadderDuration } = await import('../../src/db/repos/cooldowns.js');
     recordCooldownHit(1);
     recordCooldownHit(1);
     recordCooldownHit(1);
@@ -108,19 +108,19 @@ describe('phase 2: cooldown 4 sources', () => {
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'hub-test-'));
     process.env.HUB_DATA_DIR = dataDir;
-    const { runMigrations } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/migrations/runner.js');
+    const { runMigrations } = await import('../../src/db/migrations/runner.js');
     db = new DatabaseSync(join(dataDir, 'hub.db'));
     process.env.HUB_SKIP_SEED = process.env.HUB_SKIP_SEED ?? '1'; runMigrations(db);
-    const conn = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/connection.js');
+    const conn = await import('../../src/db/connection.js');
     conn.setDbForTest(db);
     // 评分排序现在真实生效 (Thompson 探索会让等分 key 随机换序) —
     // 测试断言基于输入序 (A1 先试), 用 priority 策略固定排序 = 输入序
-    const settingsRepo = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/settings.js');
+    const settingsRepo = await import('../../src/db/repos/settings.js');
     settingsRepo.setSetting('routing_strategy', 'priority');
     // 创建一个真实 key 满足 FK
-    const providers = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/providers.js');
-    const channels = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/channels.js');
-    const keys = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/keys.js');
+    const providers = await import('../../src/db/repos/providers.js');
+    const channels = await import('../../src/db/repos/channels.js');
+    const keys = await import('../../src/db/repos/keys.js');
     const p = providers.createProvider({ name: 'minimax', base_url: 'https://api.minimax/v1' });
     const c = channels.createChannel({ provider_id: p.id });
     keys.createKey({ channel_id: c.id, label: 'A1', apiKey: 'sk-a1' });
@@ -129,7 +129,7 @@ describe('phase 2: cooldown 4 sources', () => {
   afterEach(() => { try { rmSync(dataDir, { recursive: true, force: true }); } catch {} });
 
   it('写入 4 类 source 并读回', async () => {
-    const { setCooldown, getActiveCooldown } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const { setCooldown, getActiveCooldown } = await import('../../src/db/repos/cooldowns.js');
     // 用一个不存在的 key_id 测写入, 我们只关心 source 字段
     setCooldown({ keyId: 1, reason: 'rate_limit', durationMs: 90_000, source: 'heuristic' });
     setCooldown({ keyId: 1, reason: 'rate_limit_ra', upstreamModel: 'm1', durationMs: 600_000, source: 'authoritative', recoverable: false });
@@ -156,19 +156,19 @@ describe('phase 2: cooldown 4 sources', () => {
 
 describe('phase 2: local endpoint detection', () => {
   it('loopback → local', async () => {
-    const { isLocalEndpoint } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/util/endpoints.js');
+    const { isLocalEndpoint } = await import('../../src/util/endpoints.js');
     assert.equal(isLocalEndpoint('http://127.0.0.1:11434'), true);
     assert.equal(isLocalEndpoint('http://localhost:11434'), true);
     assert.equal(isLocalEndpoint('http://0.0.0.0:11434'), true);
   });
   it('RFC1918 → local', async () => {
-    const { isLocalEndpoint } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/util/endpoints.js');
+    const { isLocalEndpoint } = await import('../../src/util/endpoints.js');
     assert.equal(isLocalEndpoint('http://192.168.1.100:11434'), true);
     assert.equal(isLocalEndpoint('http://10.0.0.1:8080'), true);
     assert.equal(isLocalEndpoint('http://172.16.0.1:8080'), true);
   });
   it('公网 → remote', async () => {
-    const { isLocalEndpoint } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/util/endpoints.js');
+    const { isLocalEndpoint } = await import('../../src/util/endpoints.js');
     assert.equal(isLocalEndpoint('https://api.openai.com'), false);
     assert.equal(isLocalEndpoint('https://api.minimax.chat'), false);
   });
@@ -181,20 +181,20 @@ describe('phase 2: failover with mock http', () => {
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'hub-test-'));
     process.env.HUB_DATA_DIR = dataDir;
-    const { runMigrations } = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/migrations/runner.js');
+    const { runMigrations } = await import('../../src/db/migrations/runner.js');
     db = new DatabaseSync(join(dataDir, 'hub.db'));
     process.env.HUB_SKIP_SEED = process.env.HUB_SKIP_SEED ?? '1'; runMigrations(db);
-    const conn = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/connection.js');
+    const conn = await import('../../src/db/connection.js');
     conn.setDbForTest(db);
     // 评分排序现在真实生效 (Thompson 探索会让等分 key 随机换序) —
     // 测试断言基于输入序 (A1 先试), 用 priority 策略固定排序 = 输入序
-    const settingsRepo = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/settings.js');
+    const settingsRepo = await import('../../src/db/repos/settings.js');
     settingsRepo.setSetting('routing_strategy', 'priority');
 
     // 2 个 provider, 4 个 key (minimax A1, A2; openrouter B1, B2)
-    const providers = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/providers.js');
-    const channels = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/channels.js');
-    const keys = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/keys.js');
+    const providers = await import('../../src/db/repos/providers.js');
+    const channels = await import('../../src/db/repos/channels.js');
+    const keys = await import('../../src/db/repos/keys.js');
     const p1 = providers.createProvider({ name: 'minimax', base_url: 'https://minimax.test/v1' });
     const p2 = providers.createProvider({ name: 'openrouter', base_url: 'https://openrouter.test/api/v1' });
     // sticky (无 hubKeyId 时按评分序取首个) — failover 单测要确定性, 不受 multi_key_mode=random 影响
@@ -206,7 +206,7 @@ describe('phase 2: failover with mock http', () => {
     keys.createKey({ channel_id: c2.id, label: 'B2', apiKey: 'sk-b2' });
 
     // 注册 discovered_models
-    const dm = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/discoveredModels.js');
+    const dm = await import('../../src/db/repos/discoveredModels.js');
     for (let kid of [1, 2, 3, 4]) {
       dm.upsertDiscoveredModel(kid, 'M3');
     }
@@ -215,7 +215,7 @@ describe('phase 2: failover with mock http', () => {
   afterEach(() => { try { rmSync(dataDir, { recursive: true, force: true }); } catch {} });
 
   it('401 切下一个 key', async () => {
-    const failover = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/routing/failover.js');
+    const failover = await import('../../src/routing/failover.js');
     let callCount = 0;
     failover.setHttpSendForTest(async (url, key) => {
       callCount++;
@@ -233,7 +233,7 @@ describe('phase 2: failover with mock http', () => {
   });
 
   it('402 → 切下一个 + 24h credit cooldown', async () => {
-    const failover = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/routing/failover.js');
+    const failover = await import('../../src/routing/failover.js');
     let callCount = 0;
     failover.setHttpSendForTest(async () => {
       callCount++;
@@ -246,7 +246,7 @@ describe('phase 2: failover with mock http', () => {
     assert.equal(r.ok, true);
 
     // 验证 key 1 写了 24h credit cooldown
-    const cooldowns = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const cooldowns = await import('../../src/db/repos/cooldowns.js');
     const cd = cooldowns.getActiveCooldown(1, 'quota', null);
     assert.ok(cd, 'should have quota cooldown');
     assert.equal(cd!.source, 'credit');
@@ -258,7 +258,7 @@ describe('phase 2: failover with mock http', () => {
   });
 
   it('429 → 切下一个 + 2 min heuristic cooldown (1st hit, ladder 起步)', async () => {
-    const failover = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/routing/failover.js');
+    const failover = await import('../../src/routing/failover.js');
     let callCount = 0;
     failover.setHttpSendForTest(async () => {
       callCount++;
@@ -270,7 +270,7 @@ describe('phase 2: failover with mock http', () => {
     const r = await failover.chatWithFailover({ model: 'M3', messages: [] }, null);
     assert.equal(r.ok, true);
 
-    const cooldowns = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/db/repos/cooldowns.js');
+    const cooldowns = await import('../../src/db/repos/cooldowns.js');
     const cd = cooldowns.getActiveCooldown(1, 'rate_limit', 'M3');
     assert.ok(cd, 'should have rate_limit cooldown');
     assert.equal(cd!.source, 'heuristic');
@@ -282,7 +282,7 @@ describe('phase 2: failover with mock http', () => {
   });
 
   it('5xx 同 key 重试 1 次后切下一个', async () => {
-    const failover = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/routing/failover.js');
+    const failover = await import('../../src/routing/failover.js');
     let callCount = 0;
     const perKeyCalls = new Map<number, number>();
     failover.setHttpSendForTest(async (_url, key) => {
@@ -298,7 +298,7 @@ describe('phase 2: failover with mock http', () => {
   });
 
   it('404 model_not_found → skipPlatforms (minimax) → 切到 openrouter', async () => {
-    const realFailover = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/routing/failover.js');
+    const realFailover = await import('../../src/routing/failover.js');
     let callCount = 0;
     realFailover.setHttpSendForTest(async () => {
       callCount++;
@@ -319,7 +319,7 @@ describe('phase 2: failover with mock http', () => {
   });
 
   it('三段 provider/key/model 强制指定, 失败不重试', async () => {
-    const failover = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/routing/failover.js');
+    const failover = await import('../../src/routing/failover.js');
     let callCount = 0;
     failover.setHttpSendForTest(async () => {
       callCount++;
@@ -332,7 +332,7 @@ describe('phase 2: failover with mock http', () => {
   });
 
   it('全部 401 → 返回 auth_invalid', async () => {
-    const failover = await import('/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/routing/failover.js');
+    const failover = await import('../../src/routing/failover.js');
     failover.setHttpSendForTest(async () => {
       return { status: 401, body: JSON.stringify({ error: 'invalid' }), headers: {}, latencyMs: 10 };
     });

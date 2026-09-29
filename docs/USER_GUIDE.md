@@ -46,8 +46,8 @@
 打开飞牛 OS 的 SSH（控制台 → 系统设置 → 终端 → 启用 SSH），然后：
 
 ```bash
-mkdir -p /vol1/1000/docker/freellm-hub
-cd /vol1/1000/docker/freellm-hub
+mkdir -p ~/freellm-hub
+cd ~/freellm-hub
 ```
 
 > 路径可以自己定，但要确保**这个目录在硬盘上**，不要放内存盘。
@@ -55,7 +55,7 @@ cd /vol1/1000/docker/freellm-hub
 ### 2. 创建 docker-compose.yml
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zhibushi001/freellm-hub/main/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/zhibushi001/freellm-hub-v2/main/docker-compose.yml -o docker-compose.yml
 ```
 
 如果命令下载失败（国内 GitHub 偶尔抽风），手动创建文件，内容见本仓库 [`docker-compose.yml`](../docker-compose.yml)。
@@ -199,7 +199,7 @@ Hub 这边**什么都不用做**。
 
 ```bash
 # 在飞牛 OS 控制台设置"计划任务", 每天 3 点跑:
-tar czf /vol1/1000/backup/freellm-hub-$(date +\%F).tar.gz /vol1/1000/docker/freellm-hub/data
+tar czf ~/backups/freellm-hub-$(date +\%F).tar.gz ~/freellm-hub/data
 ```
 
 把备份传到云盘 / 另一块硬盘。
@@ -236,7 +236,7 @@ A: **v0.1 不做**。推倒重来。手动加几个 Key 也就 5 分钟。
 
 **Q: 升级版本怎么升？**
 ```bash
-cd /vol1/1000/docker/freellm-hub
+cd ~/freellm-hub
 docker compose pull
 docker compose up -d
 ```

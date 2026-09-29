@@ -376,7 +376,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       },
       usage: {
         description: '使用示例',
-        curl: `curl -X POST http://localhost:3303/v1/chat/completions \\
+        curl: `curl -X POST http://localhost:3030/v1/chat/completions \\
   -H "Authorization: Bearer your-hub-key" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"sensenova-6.8-flash-lite","messages":[{"role":"user","content":"你好"}]}'`,

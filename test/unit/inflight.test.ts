@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {
   inflightStart, inflightEnd, inflightGet, inflightGetAll,
   inflightWeightPenalty, inflightClear,
-} from '/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/services/inflightTracker.js';
+} from '../../src/services/inflightTracker.js';
 
 describe('In-flight tracker', () => {
   beforeEach(() => inflightClear());

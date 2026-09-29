@@ -10,7 +10,7 @@ import {
   responsesCreatedEvent,
   processChatChunkToResponses,
   type ResponsesRequest,
-} from '/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/adapters/responses.js';
+} from '../../src/adapters/responses.js';
 
 describe('Responses: 入站 (Responses → chat)', () => {
   it('input 是 string → user 消息', () => {

@@ -20,7 +20,7 @@
 - **Docker**: 20.10+ （多阶段构建需要 BuildKit，大多数现代版本已默认开启）
 - **内存**: 1GB+ 可用
 - **磁盘**: 1GB+ 可用（SQLite + 自动备份）
-- **端口**: 3303（或自定义，参考 [配置说明](#配置说明)）
+- **端口**: 3030（或自定义，参考 [配置说明](#配置说明)）
 
 **不需要**：Node.js、数据库、npm、构建工具 —— 镜像已经包含一切。
 
@@ -30,31 +30,28 @@
 
 适合：个人开发者、小团队、测试环境
 
-### 步骤 1: 拉取镜像
+### 步骤 1: 获取源码并构建镜像
 
 ```bash
-docker pull freellm-hub-v2:v2.0.0
+git clone https://github.com/zhibushi001/freellm-hub-v2.git
+cd freellm-hub-v2
+docker build -t freellm-hub-v2:v2.0.0 .
 ```
 
-如果你想用最新版（不推荐生产环境）：
+想同时打上 latest 标签：
 ```bash
-docker pull freellm-hub-v2:latest
+docker build -t freellm-hub-v2:latest .
 ```
 
 ### 步骤 2: 创建唯一的数据 volume
 
-**⚠️ 这一步很关键**：用唯一命名的 volume，避免和别人/老部署的数据冲突。
+**⚠️ 这一步很关键**：数据卷存放数据库、加密主密钥和会话（换卷 = 全新开始）。
 
 ```bash
-# 推荐: 用机器名 + 日期作后缀
-docker volume create freellm-hub-data-$(hostname)-$(date +%Y%m%d)
-
-# 或者简单点
-docker volume create freellm-hub-data-prod
+docker volume create freellm-hub-data
 ```
 
-为什么不能用 `freellm-hub-data`？  
-→ 如果这台机器上**以前部署过** FreeLLM Hub（或别人用过同名 volume），Docker 会挂载旧数据，新安装会被污染。
+> 这台机器以前装过 FreeLLM Hub、想彻底从零开始？先 `docker rm -f freellm-hub`，再换一个新卷名（如 `freellm-hub-data-fresh`），别直接复用旧卷。
 
 ### 步骤 3: 启动容器
 
@@ -62,8 +59,8 @@ docker volume create freellm-hub-data-prod
 docker run -d \
   --name freellm-hub \
   --restart unless-stopped \
-  -p 3303:3030 \
-  -v freellm-hub-data-prod:/app/data \
+  -p 3030:3030 \
+  -v freellm-hub-data:/app/data \
   -e TZ=Asia/Shanghai \
   freellm-hub-v2:v2.0.0
 ```
@@ -74,8 +71,8 @@ docker run -d \
 | `-d` | 后台运行 |
 | `--name freellm-hub` | 容器名（用于后续管理命令） |
 | `--restart unless-stopped` | 开机自启（除非手动 `docker stop`） |
-| `-p 3303:3030` | 宿主机 3303 端口 → 容器 3030 端口 |
-| `-v freellm-hub-data-prod:/app/data` | 挂载数据 volume 到容器内 `/app/data` |
+| `-p 3030:3030` | 宿主机 3030 端口 → 容器 3030 端口 |
+| `-v freellm-hub-data:/app/data` | 挂载数据 volume 到容器内 `/app/data` |
 | `-e TZ=Asia/Shanghai` | 设置时区（影响日志和定时任务） |
 
 ### 步骤 4: 验证
@@ -85,8 +82,8 @@ docker run -d \
 sleep 10
 
 # 健康检查
-curl http://localhost:3303/health
-# 预期输出: {"status":"ok","service":"freellm-hub","version":"0.1.0","db":"sqlite",...}
+curl http://localhost:3030/health
+# 预期输出: {"status":"ok","service":"freellm-hub","version":"2.0.0","db":"sqlite",...}
 
 # Docker 健康检查状态
 docker inspect --format='{{.State.Health.Status}}' freellm-hub
@@ -95,10 +92,10 @@ docker inspect --format='{{.State.Health.Status}}' freellm-hub
 
 ### 步骤 5: 进入首次初始化
 
-打开浏览器访问 `http://localhost:3303/setup`，按提示创建管理员账号。
+打开浏览器访问 `http://localhost:3030/setup`，按提示创建管理员账号。
 
 ✅ **完成！** 接下来可以：
-- 访问 `http://localhost:3303/admin/dashboard` 进入后台
+- 访问 `http://localhost:3030/admin/dashboard` 进入后台
 - 在 `渠道管理` 添加第一个 Provider
 - 在 `Hub Keys` 创建客户端 Key
 - 调用 `/v1/chat/completions` 测试
@@ -124,7 +121,7 @@ services:
     container_name: freellm-hub
     restart: unless-stopped
     ports:
-      - "3303:3030"
+      - "3030:3030"
     volumes:
       - ./data:/app/data   # bind mount, 数据持久化在 ./data 目录
     environment:
@@ -188,7 +185,7 @@ docker build -t my-freellm-hub:custom .
 
 ## 首次初始化
 
-启动容器后访问 `http://localhost:3303/setup`，填写：
+启动容器后访问 `http://localhost:3030/setup`，填写：
 
 - **用户名**: 3-32 字符，仅字母数字下划线连字符
 - **密码**: 至少 10 字符，必须含字母和数字
@@ -227,19 +224,19 @@ docker build -t my-freellm-hub:custom .
 ```bash
 # 1. 备份当前数据
 docker exec freellm-hub sh -c 'cp /app/data/hub.db /app/data/hub.db.before-upgrade' 2>/dev/null
-docker run --rm -v freellm-hub-data-prod:/data -v $(pwd):/backup alpine cp /data/hub.db /backup/hub.db.$(date +%Y%m%d)
+docker run --rm -v freellm-hub-data:/data -v $(pwd):/backup alpine cp /data/hub.db /backup/hub.db.$(date +%Y%m%d)
 
-# 2. 拉取新版本
-docker pull freellm-hub-v2:v2.1.0
+# 2. 获取新版本源码并构建镜像
+git pull && docker build -t freellm-hub-v2:v2.1.0 .
 
 # 3. 重启容器（数据 volume 保持不变）
 docker stop freellm-hub && docker rm freellm-hub
 docker run -d --name freellm-hub --restart unless-stopped \
-  -p 3303:3030 -v freellm-hub-data-prod:/app/data \
+  -p 3030:3030 -v freellm-hub-data:/app/data \
   -e TZ=Asia/Shanghai freellm-hub-v2:v2.1.0
 
 # 4. 验证
-curl http://localhost:3303/health
+curl http://localhost:3030/health
 docker logs --tail 50 freellm-hub | grep -E "migration|error"
 ```
 
@@ -265,11 +262,11 @@ npm install
 docker build -t my-freellm-hub:custom .
 ```
 
-### 2. 端口 3303 已被占用
+### 2. 端口 3030 已被占用
 
 ```bash
 # 找占用进程
-lsof -i :3303
+lsof -i :3030
 
 # 或换端口启动
 docker run -d ... -p 8333:3030 ...
@@ -298,13 +295,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 docker stop freellm-hub && docker rm freellm-hub
 
 # 2. 删旧 volume
-docker volume rm freellm-hub-data-prod
+docker volume rm freellm-hub-data
 
 # 3. 创建新 volume
-docker volume create freellm-hub-data-prod-$(date +%Y%m%d)
+docker volume create freellm-hub-data-$(date +%Y%m%d)
 
 # 4. 重新启动
-docker run -d ... -v freellm-hub-data-prod-$(date +%Y%m%d):/app/data ...
+docker run -d ... -v freellm-hub-data-$(date +%Y%m%d):/app/data ...
 ```
 
 ### 5. 容器启动后立即退出
@@ -323,16 +320,16 @@ docker logs freellm-hub
 
 ```bash
 # 在旧机器: 备份数据目录
-docker run --rm -v freellm-hub-data-prod:/data -v $(pwd):/backup alpine \
+docker run --rm -v freellm-hub-data:/data -v $(pwd):/backup alpine \
   tar czf /backup/hub-data-$(date +%Y%m%d).tar.gz -C /data .
 
 # 在新机器: 创建 volume 并导入
-docker volume create freellm-hub-data-prod
-docker run --rm -v freellm-hub-data-prod:/data -v $(pwd):/backup alpine \
+docker volume create freellm-hub-data
+docker run --rm -v freellm-hub-data:/data -v $(pwd):/backup alpine \
   tar xzf /backup/hub-data-YYYYMMDD.tar.gz -C /data
 
 # 启动容器 (使用恢复的数据)
-docker run -d ... -v freellm-hub-data-prod:/app/data ...
+docker run -d ... -v freellm-hub-data:/app/data ...
 ```
 
 **⚠️ 必须备份整个 volume**：包含 `hub.db` + `master.key` + `session.secret` + `backups/`。如果用 docker-compose 的 bind mount，整个 `./data` 目录拷过去就行。
@@ -351,7 +348,7 @@ docker stop freellm-hub
 docker rm freellm-hub
 
 # 3. 删数据 volume (named volume)
-docker volume rm freellm-hub-data-prod
+docker volume rm freellm-hub-data
 
 # 或者删数据目录 (bind mount)
 rm -rf ./data

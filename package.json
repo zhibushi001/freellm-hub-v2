@@ -31,6 +31,14 @@
     "self-hosted"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhibushi001/freellm-hub-v2.git"
+  },
+  "homepage": "https://github.com/zhibushi001/freellm-hub-v2#readme",
+  "bugs": {
+    "url": "https://github.com/zhibushi001/freellm-hub-v2/issues"
+  },
   "dependencies": {
     "@fastify/cookie": "^11.0.1",
     "@fastify/cors": "^11.3.0",

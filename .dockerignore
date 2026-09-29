@@ -5,3 +5,15 @@ data
 *.bak*
 *.log
 .DS_Store
+
+# 本地环境变量 (端口/路径等个人配置, 绝不上传)
+.env
+.env.local
+.env.*
+
+# 依赖与构建产物 — 镜像内由 npm ci 现装, 不进构建上下文
+**/node_modules
+dist
+**/dist
+.deploy-backups
+hub-backups

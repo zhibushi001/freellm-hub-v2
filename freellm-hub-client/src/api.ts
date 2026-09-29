@@ -136,9 +136,11 @@ export interface HubKey {
 
 export interface ModelRoute {
   id: number;
-  /** 后端真实字段: request_model + channel_ids(JSON字符串) + notes */
+  /** 后端真实字段: request_model + channel_ids + notes
+   *  响应: channel_ids 为 JSON 字符串 (库里存的形态);
+   *  请求 (create/update): channel_ids 为 number[] — 后端 body 校验要求数组 */
   request_model: string;
-  channel_ids?: string;
+  channel_ids?: string | number[];
   enabled: number;
   notes?: string;
   /** 旧前端字段 (已废弃, 保留避免其它引用报错) */

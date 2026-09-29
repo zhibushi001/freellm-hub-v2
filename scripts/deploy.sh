@@ -6,8 +6,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# 读取本地 .env (端口等个人配置, .gitignore 忽略); 没有则默认 3030
+if [ -f .env ]; then
+  set -a
+  # shellcheck source=/dev/null
+  . ./.env
+  set +a
+fi
+
 CONTAINER=freellm-hub
-HEALTH_URL=http://localhost:3303/health
+HEALTH_URL=http://localhost:${HUB_HOST_PORT:-3030}/health
 TS=$(date +%Y%m%d-%H%M%S)
 log() { echo "[deploy] $*"; }
 

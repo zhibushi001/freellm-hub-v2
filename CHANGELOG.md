@@ -7,6 +7,16 @@
 
 > 本节为 2026-09 迭代的过程记录 (按时间倒序), 来自四审计批量修复、用户拍板决策与线上故障处置。
 
+### 发布前整备: GitHub 就绪审计 (2026-09-30)
+
+- **测试可移植性**: 8 个测试文件里写死的本机绝对路径全部改为相对导入, `ROOT` 常量改由 `import.meta.url` 推导 — 别人克隆后 `npm test` 才跑得起来
+- **Docker 自包含**: Dockerfile 不再 COPY 本机 node_modules (克隆下来的仓库没有它, 构建必挂) → 构建阶段 `npm ci`, builder 编译后 `npm prune --omit=dev`, 生产阶段跨阶段复用; .dockerignore 排除依赖与构建产物
+- **lockfile 归一化**: 根 package-lock 中 1 处 `@fastify/cors` 的 resolved 指向 npmmirror, 容器内 npm ci 报 EALLOWREMOTE → 统一官方源 (宿主机镜像配置对官方源透明改写, 不受影响)
+- **前端类型修复**: `ModelRoute.channel_ids` 如实标注 (响应=JSON 字符串 / 请求=number[]), API.tsx errText 收敛 — `tsc && vite build` 恢复全绿
+- **去本机化**: compose 端口/备份目录参数化 (新增 `.env.example`, 本机 `.env` 已 gitignore), deploy.sh 健康检查端口读 .env (默认 3030), vite 开发代理默认 3030
+- **文档替换**: README / INSTALL / DEPLOY / RESTORE / USER_GUIDE / ARCHITECTURE / SECURITY 中的 3303、/vol1 私有路径、不存在的 ghcr 镜像与 docker pull 全部替换为源码构建流程; 快速开始改为 git clone + docker compose
+- **发布物**: README 双语升级 (bcrypt→Argon2id 事实修正 + 告警/一键部署特性), `docs/product/index.html` 中英双语产品介绍单页
+
 ### 废弃代码与残留清理 (2026-09-30, 用户拍板后执行)
 
 #### 清理前三路备份 (用户要求"先备份避免误操作")

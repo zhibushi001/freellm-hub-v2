@@ -14,7 +14,7 @@ import {
   processOpenAIToolCallChunk,
   finalizeToolCallStream,
   type AnthropicTool,
-} from '/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2/src/adapters/anthropicTools.js';
+} from '../../src/adapters/anthropicTools.js';
 
 describe('Anthropic tools: 入站 (Anthropic → OpenAI)', () => {
   it('tools 数组: name + description + input_schema', () => {

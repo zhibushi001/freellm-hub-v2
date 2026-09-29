@@ -488,10 +488,10 @@ console.log('P50:', arr[Math.floor(arr.length*0.5)], 'P95:', arr[Math.floor(arr.
 "
 
 # 健康检查
-curl http://localhost:3303/health
+curl http://localhost:3030/health
 
 # 触发 DB 备份
-curl -X POST -H "Cookie: hub_session=$COOKIE" http://localhost:3303/api/admin/backup
+curl -X POST -H "Cookie: hub_session=$COOKIE" http://localhost:3030/api/admin/backup
 ```
 
 ---

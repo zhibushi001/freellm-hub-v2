@@ -108,17 +108,16 @@
 - 🔔 **事件告警** — Key 被拉黑 / 备份失败 / 全部不可用等关键事件，一键推送飞书、企业微信、钉钉或任意 Webhook（10 分钟去重）
 - 🚀 **可回滚的一键部署** — `./scripts/deploy.sh`：构建 → 孤儿校验 → 推送 → 健康门禁，任一步失败自动回滚；备份每日自动且落在数据卷之外，[恢复手册](./docs/RESTORE.md)已实机演练
 
-### 🚀 30 秒启动
+### 🚀 快速开始
 
 ```bash
-mkdir -p ~/freellm-hub && cd ~/freellm-hub
-docker run -d \
-  --name freellm-hub \
-  --restart unless-stopped \
-  -p 3030:3030 \
-  -v $(pwd)/data:/app/data \
-  -e TZ=Asia/Shanghai \
-  ghcr.io/zhibushi001/freellm-hub:v2.0.0
+git clone https://github.com/zhibushi001/freellm-hub-v2.git && cd freellm-hub-v2
+
+# 数据卷 (只需首次执行一次)
+docker volume create freellm-hub-data
+
+# 构建并启动 (首次构建约 1~2 分钟)
+docker compose up -d --build
 
 # 等几秒后访问
 open http://localhost:3030
@@ -239,19 +238,18 @@ A self-hosted LLM API gateway that unifies all your API keys behind one endpoint
 - 🔔 **Event Alerts** — critical events (key blacklisted, backup failed, everything down) pushed to Feishu / WeCom / DingTalk / any webhook with 10-minute dedup
 - 🚀 **One-click Deploy with Auto-rollback** — `./scripts/deploy.sh`: build → orphan check → push → health gate, auto-rollback on any failure; daily backups live outside the data volume and the [restore runbook](./docs/RESTORE.md) is drill-tested
 
-### 🚀 30-second start
+### 🚀 Quick start
 
 ```bash
-mkdir -p ~/freellm-hub && cd ~/freellm-hub
-docker run -d \
-  --name freellm-hub \
-  --restart unless-stopped \
-  -p 3030:3030 \
-  -v $(pwd)/data:/app/data \
-  -e TZ=Asia/Shanghai \
-  ghcr.io/zhibushi001/freellm-hub:v2.0.0
+git clone https://github.com/zhibushi001/freellm-hub-v2.git && cd freellm-hub-v2
 
-# Wait a few seconds, then open
+# Create the data volume (first run only)
+docker volume create freellm-hub-data
+
+# Build & start (first build takes 1-2 minutes)
+docker compose up -d --build
+
+# Wait a few seconds and open
 open http://localhost:3030
 ```
 

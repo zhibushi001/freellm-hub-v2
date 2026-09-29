@@ -219,7 +219,7 @@ export default function API() {
       });
       
       if (!res.ok) {
-        const errText = await res.text().catch(() => null);
+        const errText = await res.text().catch(() => '');
         let msg: any = errText || `HTTP ${res.status}`;
         try {
           const j = JSON.parse(errText);

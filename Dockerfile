@@ -5,7 +5,8 @@ USER root
 RUN apk add --no-cache curl 2>/dev/null || true
 USER node
 COPY --chown=node:node freellm-hub-client/package*.json ./
-COPY --chown=node:node freellm-hub-client/node_modules ./node_modules
+# 依赖装在构建容器里 (克隆下来的仓库没有 node_modules, 不能 COPY 本机的)
+RUN npm ci --no-audit --no-fund
 COPY --chown=node:node freellm-hub-client/ ./
 RUN npm run build
 
@@ -16,11 +17,11 @@ USER root
 RUN apk add --no-cache curl 2>/dev/null || true
 USER node
 COPY --chown=node:node package*.json ./
-COPY --chown=node:node node_modules ./node_modules
+RUN npm ci --no-audit --no-fund
 COPY --chown=node:node tsconfig.json ./
 COPY --chown=node:node scripts ./scripts
 COPY --chown=node:node src ./src
-RUN npm run build
+RUN npm run build && npm prune --omit=dev --no-audit
 
 # Production stage
 FROM cgr.dev/chainguard/node:latest AS production
@@ -29,7 +30,8 @@ USER root
 RUN apk add --no-cache curl 2>/dev/null || true
 USER node
 COPY --chown=node:node package*.json ./
-COPY --chown=node:node node_modules ./node_modules
+# 运行时依赖来自 builder (已 prune 掉 devDeps; 原生模块在 -dev 镜像里编译更稳)
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 # 后端编译产物
 COPY --from=builder --chown=node:node /app/dist ./dist
 # 把 package.json 也复制到 dist/ 同级, 让运行时的 __dirname 能读到版本

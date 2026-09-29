@@ -14,23 +14,24 @@
 ## 快速部署
 
 ```bash
-# 1. 拉取镜像
-docker pull freellm-hub-v2:v2.0.0
+# 1. 获取源码并构建镜像 (仓库根目录)
+git clone https://github.com/zhibushi001/freellm-hub-v2.git && cd freellm-hub-v2
+docker build -t freellm-hub-v2:v2.0.0 .
 
 # 2. 启动 (首次会自动初始化)
 docker run -d \
   --name freellm-hub \
   --restart unless-stopped \
-  -p 3303:3030 \
+  -p 3030:3030 \
   -v freellm-hub-data:/app/data \
   -e TZ=Asia/Shanghai \
   freellm-hub-v2:v2.0.0
 
 # 3. 验证
-curl http://localhost:3303/health
-# {"status":"ok","service":"freellm-hub","version":"0.1.0","db":"sqlite",...}
+curl http://localhost:3030/health
+# {"status":"ok","service":"freellm-hub","version":"2.0.0","db":"sqlite",...}
 
-# 4. 首次初始化: 访问 http://localhost:3303/setup 创建管理员账号
+# 4. 首次初始化: 访问 http://localhost:3030/setup 创建管理员账号
 ```
 
 ## 配置
@@ -59,7 +60,7 @@ services:
     container_name: freellm-hub
     restart: unless-stopped
     ports:
-      - "3303:3030"
+      - "3030:3030"
     volumes:
       - ./data:/app/data
     environment:
@@ -106,7 +107,7 @@ data/
 
 ```bash
 # 方式 1: API (需先登录后台)
-curl -X POST -H "Cookie: hub_session=..." http://localhost:3303/api/admin/backup
+curl -X POST -H "Cookie: hub_session=..." http://localhost:3030/api/admin/backup
 
 # 方式 2: 直接调用 VACUUM INTO
 docker exec freellm-hub sh -c \
@@ -117,7 +118,7 @@ docker exec freellm-hub sh -c \
 ### 查看备份列表
 
 ```bash
-curl -H "Cookie: hub_session=..." http://localhost:3303/api/admin/backup
+curl -H "Cookie: hub_session=..." http://localhost:3030/api/admin/backup
 # 返回: {"ok":true,"backups":[{"name":"hub-...db","size":868352,"mtime":"..."}], "max_backups":7}
 ```
 
@@ -137,7 +138,7 @@ cp data/backups/hub-2026-09-19T02-31-53.db data/hub.db
 docker start freellm-hub
 
 # 5. 验证
-curl http://localhost:3303/health
+curl http://localhost:3030/health
 docker logs freellm-hub | tail -20
 ```
 
@@ -168,7 +169,7 @@ server {
 
     # 后台 + API 都走同一个域
     location / {
-        proxy_pass http://127.0.0.1:3303;
+        proxy_pass http://127.0.0.1:3030;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -185,7 +186,7 @@ server {
 
 ```
 hub.example.com {
-    reverse_proxy 127.0.0.1:3303
+    reverse_proxy 127.0.0.1:3030
     request_body {
         max_size 10MB
     }
@@ -195,8 +196,8 @@ hub.example.com {
 ## 升级
 
 ```bash
-# 1. 拉取新版
-docker pull freellm-hub-v2:v2.0.1
+# 1. 获取新版源码并构建镜像
+git pull && docker build -t freellm-hub-v2:v2.0.1 .
 
 # 2. 备份当前数据 (以防回滚)
 cp -r data/ data.bak.v2.0.0/
@@ -208,13 +209,13 @@ docker stop freellm-hub
 docker run -d \
   --name freellm-hub \
   --restart unless-stopped \
-  -p 3303:3030 \
+  -p 3030:3030 \
   -v freellm-hub-data:/app/data \
   -e TZ=Asia/Shanghai \
   freellm-hub-v2:v2.0.1
 
 # 5. 验证
-curl http://localhost:3303/health
+curl http://localhost:3030/health
 docker logs freellm-hub | tail -30
 # 检查是否有 migration applied 日志
 ```
@@ -229,7 +230,7 @@ docker rm freellm-hub
 docker run -d \
   --name freellm-hub \
   --restart unless-stopped \
-  -p 3303:3030 \
+  -p 3030:3030 \
   -v freellm-hub-data:/app/data \
   freellm-hub-v2:v2.0.0
 ```
@@ -246,7 +247,7 @@ docker inspect --format='{{.State.Health.Status}}' freellm-hub
 # 输出: healthy / unhealthy / starting
 
 # 手动
-curl -fsS http://localhost:3303/health
+curl -fsS http://localhost:3030/health
 ```
 
 ### 日志
@@ -336,7 +337,7 @@ docker restart freellm-hub
 
 ## 安全建议
 
-1. **不要把 3303 端口直接暴露到公网** —— 必须通过反向代理 + HTTPS
+1. **不要把 3030 端口直接暴露到公网** —— 必须通过反向代理 + HTTPS
 2. **定期更换 admin 密码** —— 在后台 `/admin/profile` 修改
 3. **Hub Key 设置合理 allowed_models** —— 避免一个 Key 能调用所有模型
 4. **启用内容护栏** —— 在 `/admin/guardrails` 配置关键词拦截

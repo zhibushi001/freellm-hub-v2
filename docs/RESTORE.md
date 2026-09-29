@@ -4,13 +4,13 @@
 
 ## 备份在哪
 
-- **位置**: `/vol1/@appshare/fn-deepseek-harness/hub-backups/`（宿主机目录，**数据卷之外** — 卷丢不影响备份）
+- **位置**: 宿主机备份目录（compose 中 `HUB_BACKUP_DIR_HOST` 指定，默认 `./hub-backups`；**数据卷之外** — 卷丢不影响备份）
 - **组成**: 每次备份是**三件套**，缺一不可：
   - `hub-<时间戳>.db` — 数据库快照 (VACUUM INTO, 自含 WAL)
   - `hub-<时间戳>.master.key` — 上游 API Key 的加密主密钥（**丢了它，库里所有上游 Key 永久无法解密**）
   - `hub-<时间戳>.session.secret` — 会话签名密钥
 - **频率**: 每次启动后5秒 + 每24小时；保留最近7份（自动清理）
-- **目录环境变量**: `HUB_BACKUP_DIR`（docker-compose.yml 中指向 `/app/backups` → 宿主机 `hub-backups/`）
+- **目录环境变量**: `HUB_BACKUP_DIR=/app/backups`（容器内路径固定；宿主机侧由 `HUB_BACKUP_DIR_HOST` 决定，默认 `./hub-backups`）
 
 ## 恢复步骤（在新机器 / 重装后）
 
@@ -25,7 +25,7 @@ cp hub-backups/hub-2026-09-29T15-35-06.session.secret /path/to/data/session.secr
 
 # 3. 启动 (docker compose 的 volumes 已配好; 或手动:)
 docker run -d --name freellm-hub --restart unless-stopped \
-  -p 3303:3030 \
+  -p 3030:3030 \
   -v freellm-hub-data:/app/data \
   -v /srv/hub-backups:/app/backups \
   -e HUB_BACKUP_DIR=/app/backups \
@@ -34,11 +34,11 @@ docker run -d --name freellm-hub --restart unless-stopped \
 # 4. 健康门禁 (migrations_pending 必须为 0)
 for i in $(seq 1 30); do
   sleep 1
-  curl -s http://localhost:3303/health | grep -q '"migrations_pending":0' && echo OK && break
+  curl -s http://localhost:3030/health | grep -q '"migrations_pending":0' && echo OK && break
 done
 
 # 5. 验证
-curl -s http://localhost:3303/v1/models -H "Authorization: Bearer <你的hub key>" | head -c 200
+curl -s http://localhost:3030/v1/models -H "Authorization: Bearer <你的hub key>" | head -c 200
 ```
 
 ## 验证清单（演练已全部通过）

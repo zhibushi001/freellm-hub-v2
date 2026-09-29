@@ -9,8 +9,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = '/vol1/@appshare/fn-deepseek-harness/zbs/freellm-hub-v2';
+const ROOT = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/+$/, '');
 
 describe('failed 键 30 分钟自动回炉', () => {
   let dataDir: string;

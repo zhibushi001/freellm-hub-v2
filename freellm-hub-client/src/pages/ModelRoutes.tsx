@@ -154,7 +154,7 @@ export default function ModelRoutes() {
 }
 
 /** B3/B4/L4: 后端真实契约是 request_model + channel_ids(JSON字符串) + notes */
-function parseChannelIds(r: { channel_ids?: string }): number[] {
+function parseChannelIds(r: { channel_ids?: string | number[] }): number[] {
   try {
     const v = typeof r.channel_ids === 'string' ? JSON.parse(r.channel_ids) : r.channel_ids;
     return Array.isArray(v) ? v.filter((n: any) => Number.isFinite(n)) : [];
