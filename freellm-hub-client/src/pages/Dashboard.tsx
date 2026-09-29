@@ -199,7 +199,7 @@ export default function Dashboard() {
               <option value="fastest">最快 (速度 0.55 / 可靠性 0.35 / 智能 0.1)</option>
               <option value="reliable">最可靠 (可靠性 0.7 / 速度 0.15 / 智能 0.15)</option>
               <option value="smartest">最智能 (智能 0.55 / 可靠性 0.35 / 速度 0.1)</option>
-              <option value="priority">手动排序 (按用户优先级)</option>
+              <option value="priority">手动排序 (优先级为主, 冷却/低额度自动靠后)</option>
             </select>
             {savingStrategy && (
               <div className="w-5 h-5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />

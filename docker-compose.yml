@@ -15,7 +15,10 @@ services:
     # 仓库 ./data/ 是陈旧残留且 master.key 不同 (容器卷 Sep15 vs ./data Sep12) — 千万别挂回来
     volumes:
       - freellm-hub-data:/app/data
+      # 改进 #3: 备份放到卷外的宿主机目录 (同卷备份 = 卷丢全丢)
+      - /vol1/@appshare/fn-deepseek-harness/hub-backups:/app/backups
     environment:
+      - HUB_BACKUP_DIR=/app/backups
       - HUB_PORT=3030
       - HUB_HOST=0.0.0.0
       - HUB_PUBLIC_URL=

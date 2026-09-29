@@ -51,7 +51,19 @@ export interface CreateKeyInput {
 }
 
 export function listKeys(): KeyWithChannel[] {
-  return getDb()
+  const db = getDb();
+  // failed 键 30 分钟自动回炉: 拉黑只是冷静期, 不是永久判决。
+  // status_since 由 updateKey 在状态变更时打点 = 可靠的拉黑时间戳;
+  // 恢复为 degraded + 清零连续失败计数 (再坏重新攒5次)。
+  // 放在 listKeys 读路径 = resolver/后台任务/后台UI 任意入口都立即生效。
+  db.prepare(
+    `UPDATE keys SET status = 'degraded',
+        status_reason = 'failed 锁定期 30 分钟已到, 自动回炉重试',
+        failure_count = 0, updated_at = ?
+      WHERE status = 'failed'
+        AND COALESCE(status_since, updated_at) < ?`,
+  ).run(Date.now(), Date.now() - 30 * 60 * 1000);
+  return db
     .prepare(
       `SELECT k.*, c.label as channel_label, c.enabled as channel_enabled,
               c.provider_id, p.name as provider_name,
@@ -210,7 +222,7 @@ export function recordKeyUsage(
         fire({
           level: 'error',
           title: `Key「${k.label ?? `#${k.id}`}」已被标记为 failed`,
-          text: `连续 ${k.failure_count} 次调用失败 (渠道 #${k.channel_id}${k.channel_label ? ` ${k.channel_label}` : ''})。resolver 不再路由到它,需人工处理后恢复。`,
+          text: `连续 ${k.failure_count} 次调用失败 (渠道 #${k.channel_id}${k.channel_label ? ` ${k.channel_label}` : ''})。已暂停路由:30 分钟后自动回炉重试;期间探测成功也会立即恢复。`,
           dedupKey: `key-failed:${id}`,
         });
       } else if (k.failure_count >= 2) {

@@ -194,14 +194,25 @@ export function rankCandidates(
   inputs: ScoringInput[],
   strategy: RoutingStrategy = DEFAULT_STRATEGY,
 ): ScoringResult[] {
-  // 'priority' 策略: 按用户手动排序的优先级排列
+  // 'priority' 策略: 按用户手动排序的优先级排列, 但照常看状态 (用户拍板方案 a):
+  // 冷却中 / 配额告急的 key 先靠后 — 手动排序只在"干净"的 key 之间生效,
+  // 否则勾了 priority = 冷却和配额保护全部旁路 (审计 F10)。
   if (strategy === 'priority') {
-    // 用 balanced 权重算分 (但排序按 rank_in_candidates)
     const results = inputs.map(s => score(s, BANDIT_PRESETS.balanced));
+    const guardTier = new Map<number, number>();
+    for (const i of inputs) {
+      const cooling = (i.cooldown_remaining_sec ?? 0) > 0;
+      const quotaLow = i.remaining_quota_ratio < 0.2;
+      guardTier.set(i.key_id, cooling || quotaLow ? 1 : 0);
+    }
+    const rank = new Map(inputs.map(i => [i.key_id, i.rank_in_candidates]));
     results.sort((a, b) => {
       if (a.available !== b.available) return a.available ? -1 : 1;
-      const idxA = inputs.find(i => i.key_id === a.key_id)?.rank_in_candidates ?? 999;
-      const idxB = inputs.find(i => i.key_id === b.key_id)?.rank_in_candidates ?? 999;
+      const gA = guardTier.get(a.key_id) ?? 0;
+      const gB = guardTier.get(b.key_id) ?? 0;
+      if (gA !== gB) return gA - gB;
+      const idxA = rank.get(a.key_id) ?? 999;
+      const idxB = rank.get(b.key_id) ?? 999;
       if (idxA !== idxB) return idxA - idxB;
       return a.key_id - b.key_id;
     });
