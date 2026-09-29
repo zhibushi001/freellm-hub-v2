@@ -1,3 +1,27 @@
+## 用户拍板三件套落地 (failed回炉 / priority看状态 / 备份外置+演练)
+
+### ① failed 键 30 分钟自动回炉
+- listKeys 读路径懒恢复: status=failed 且锁满30分钟 (COALESCE(status_since, updated_at)) → degraded + 清零连续失败计数 + 回炉原因
+- 任何入口 (resolver/后台/UI) 读到即恢复; 探测成功本来就可立即恢复 (既有逻辑保留)
+- failed 告警文案同步改为"30分钟后自动回炉"
+- 单测3例 + 线上实测 (强制failed+31min → listKeys → degraded/count=0)
+
+### ② priority 策略照常看状态 (方案 a)
+- 手动排序只在"干净" key 之间生效; 冷却中或配额<20% 的 key 自动靠后 (不移除)
+- Dashboard 选项文案: "手动排序 (优先级为主, 冷却/低额度自动靠后)"
+- 单测4例 + 线上冒烟 (切priority聊天200, 已还原balanced)
+
+### ③ 备份外置 + 恢复演练
+- docker-compose.yml: 新增宿主机挂载 hub-backups → /app/backups + HUB_BACKUP_DIR; **卷名必须 external:true** (裸名被 compose 加项目前缀曾短暂指向空卷 — 已修正、数据完好核验 hub_keys2/channels5/keys9/usage_logs9418)
+- 容器经 docker commit 固化现有代码后由 compose 重建 (stop_grace_period:60s 与 TZ 同时生效; 镜像 tag backup-precompose 留作回滚)
+- 演练通过: 备份三件套 → 独立容器1秒健康 → 数据计数一致 → master.key 解密 OK → 清理
+- 新增 docs/RESTORE.md 恢复手册 (含验证清单与注意事项)
+
+### 验证
+- npm test 全绿 (exit 0); deploy.sh 部署1秒过门禁; 聊天200; 备份已落卷外目录
+
+---
+
 ## 线上故障修复: 护栏输入过滤误杀大上下文 (用户报告)
 
 - **现象**: 用户全部调用报"供应商错误"; 实测小请求200、大请求400 `输入内容超过最大长度限制 (15000 > 8000)`

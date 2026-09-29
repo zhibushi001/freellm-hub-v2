@@ -31,4 +31,7 @@ services:
     stop_grace_period: 60s
 
 volumes:
+  # 必须 external: 容器最初用 docker run -v freellm-hub-data 创建,
+  # 裸名会被 compose 加项目前缀 (freellm-hub-v2_freellm-hub-data) 指向空卷!
   freellm-hub-data:
+    external: true
