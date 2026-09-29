@@ -27,44 +27,6 @@ export interface RequestAttemptsSummary {
   attempts: RequestAttempt[];
 }
 
-/**
- * 记录请求尝试
- */
-export function recordRequestAttempt(
-  requestId: number,
-  attemptNumber: number,
-  details: {
-    keyId?: number | null;
-    providerName?: string | null;
-    upstreamModel?: string | null;
-    statusCode?: number | null;
-    latencyMs?: number | null;
-    errorMessage?: string | null;
-    isSuccess?: boolean;
-  } = {}
-): number {
-  const now = Date.now();
-  const result = getDb()
-    .prepare(
-      `INSERT INTO request_attempts
-       (request_id, attempt_number, key_id, provider_name, upstream_model,
-        status_code, latency_ms, error_message, is_success, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      requestId,
-      attemptNumber,
-      details.keyId ?? null,
-      details.providerName ?? null,
-      details.upstreamModel ?? null,
-      details.statusCode ?? null,
-      details.latencyMs ?? null,
-      details.errorMessage ?? null,
-      details.isSuccess ? 1 : 0,
-      now,
-    );
-  return result.lastInsertRowid as number;
-}
 
 /**
  * 获取请求的所有尝试

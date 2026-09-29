@@ -142,13 +142,6 @@ function rankPool(keys: any[], upstreamModel: string | null): PoolResult {
   return { available, unavailable };
 }
 
-/**
- * Failover: 从 ranking 中选下一个可用 key
- * 配合 chatService 的重试循环
- */
-export function pickNext(pool: PoolResult): { key: any; score: number } | null {
-  return pool.available[0] ?? null;
-}
 
 // ── multi_key_mode: 同渠道多 Key 分配策略 ──────────────────────────────────
 

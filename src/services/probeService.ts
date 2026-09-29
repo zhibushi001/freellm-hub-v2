@@ -16,7 +16,6 @@ export type HttpSendFn = (url: string, apiKey: string | null, opts: any) => Prom
 // 允许测试时注入 mock
 let httpSendImpl: HttpSendFn = defaultHttpSend;
 export function setHttpSendForTest(fn: HttpSendFn) { httpSendImpl = fn; }
-export function resetHttpSendForTest() { httpSendImpl = defaultHttpSend; }
 
 export interface ProbeOutcome {
   keyId: number;

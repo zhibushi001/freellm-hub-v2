@@ -53,26 +53,6 @@ export function getTag(id: number): ChannelTag | null {
   };
 }
 
-/**
- * 获取标签名（用于显示）
- */
-export function getTagByName(name: string): ChannelTag | null {
-  const row = getDb()
-    .prepare("SELECT * FROM channel_tags WHERE name = ?")
-    .get(name) as any;
-  
-  if (!row) return null;
-  
-  return {
-    id: row.id as number,
-    name: row.name as string,
-    description: row.description as string | null,
-    color: row.color as string | null,
-    channelCount: (row.channel_count as number) || 0,
-    createdAt: row.created_at as number,
-    updatedAt: row.updated_at as number,
-  };
-}
 
 /**
  * 创建标签

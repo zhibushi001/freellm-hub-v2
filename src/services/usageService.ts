@@ -54,28 +54,3 @@ export function recordUsage(u: UsageInput): void {
     );
 }
 
-/** 后台汇总 (Phase 1 MVP 不做定时任务, 留接口给 Phase 5) */
-export function aggregateDaily(now: Date = new Date()): void {
-  const day = now.toISOString().slice(0, 10);
-  getDb()
-    .prepare(
-      `INSERT OR REPLACE INTO usage_daily
-         (key_id, day, requests, successes, failures,
-          prompt_tokens, completion_tokens, total_tokens, avg_latency_ms)
-       SELECT
-         key_id,
-         ?,
-         COUNT(*),
-         SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),
-         SUM(CASE WHEN status='error' THEN 1 ELSE 0 END),
-         COALESCE(SUM(prompt_tokens), 0),
-         COALESCE(SUM(completion_tokens), 0),
-         COALESCE(SUM(total_tokens), 0),
-         CAST(AVG(latency_ms) AS INTEGER)
-       FROM usage_logs
-       WHERE key_id IS NOT NULL
-         AND substr(datetime(created_at/1000, 'unixepoch'), 1, 10) = ?
-       GROUP BY key_id`,
-    )
-    .run(day, day);
-}

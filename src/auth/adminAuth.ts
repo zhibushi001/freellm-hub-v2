@@ -39,9 +39,6 @@ export function hasAnyAdmin(): boolean {
   return loadAll().length > 0;
 }
 
-export function listAdmins(): AdminUser[] {
-  return loadAll();
-}
 
 export interface CreateAdminInput {
   username: string;

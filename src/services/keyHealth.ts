@@ -181,22 +181,4 @@ function isInsufficientQuota(body: any): boolean {
   );
 }
 
-/** Key 是否真的可用 (看 status + cooldown) */
-export function isKeyUsable(key: { id: number; enabled: number; status: string }, upstreamModel?: string): boolean {
-  if (key.enabled === 0) return false;
-  if (key.status === 'failed' || key.status === 'disabled') return false;
-  // 检查 cooldown
-  const cd = isKeyOnCooldown(key.id, upstreamModel ?? null);
-  if (cd.onCooldown) return false;
-  return true;
-}
 
-/** 手动重置 */
-export function resetKeyStatus(keyId: number): void {
-  updateKey(keyId, { status: 'healthy', status_reason: null });
-  // 清掉所有 cooldown
-  const cds = getAllActiveCooldownsForKey(keyId);
-  for (const cd of cds) {
-    clearCooldown(keyId, cd.reason, cd.upstream_model, 'manual_reset');
-  }
-}

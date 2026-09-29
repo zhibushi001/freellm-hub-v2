@@ -53,3 +53,8 @@ if (existsSync(srcPublic)) {
   copyRecursive(srcPublic, distPublic);
   console.log(`[copy-assets] public/ copied`);
 }
+
+// package.json → dist/  (app.ts 运行时用 __dirname/package.json 读版本)
+// 之前只靠 Dockerfile 烘焙: 每次部署推送的 dist 里没有它, 清残留还会把它当孤儿删掉 → 版本变 unknown
+copyFileSync(join(root, 'package.json'), join(root, 'dist/package.json'));
+console.log(`[copy-assets] package.json → dist/`);

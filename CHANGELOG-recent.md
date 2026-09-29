@@ -1,3 +1,46 @@
+## 废弃代码与残留清理 (2026-09-30, 用户拍板后执行)
+
+### 清理前三路备份 (用户要求"先备份避免误操作")
+- git tag + branch `pre-cleanup-20260929` → fd206bc
+- 磁盘快照 `freellm-snapshot-pre-cleanup-20260929-235022.tar.gz` (12M, 仓库外, 含 .git)
+- 镜像 tag `freellm-hub-v2:pre-cleanup-20260929`; 数据库按备份策略自动留存
+
+### A. 容器运行时残留 11 个 (最危险, 直接清)
+- `db/migrations/006_model_routes.sql` —— 早被删除的迁移文件还躺在容器 dist 里, 就是它曾被重放导致启动崩溃
+- `004_seed_providers.sql` / `005_channel_newapi_fields.sql` 同类孤儿; `db/migrations/runner.ts` (源文件混进 dist)
+- `services/videoService.{js,d.ts,js.map}` —— 模块早删, 编译产物还在跑
+- AppleDouble 垃圾 `._assets` / `._index.html`; `public/css/app.css.bak`
+- 清理后镜像重新固化 (docker commit)
+
+### B. 部署清残留防线 (根因修复)
+- deploy.sh 推送后新增: 删除容器 dist 里"本地已不存在"的文件 (白名单 package.json; 两侧 LC_ALL=C 排序防 collation 误判)
+- 根因: `tar 推送` 只增不删, 删掉的文件会永远躺在容器里
+
+### C. dist/package.json 版本读取 (本轮引入又当场修掉)
+- 清理时误删了容器里的 dist/package.json → /health 版本变成 unknown
+- 根治: copy-assets 把 package.json 复制进 dist/ 成为单一来源, 每次推送都带
+- 验证: version 恢复 2.0.0
+
+### D. 死代码: 22 个零引用导出函数/常量, 308 行, 14 个文件
+- 判据: 跨全仓库 (src/前端/test/scripts) 零引用 **且** 同文件内部也零使用; notifier 的测试钩子核实仍被测试引用 → 未删
+- 涉及 channels/providers/discoveredModels/kek/adminAuth/selector/openai/usageService/requestTracking/cache/tags/degradation/probe/keyHealth
+- 顺带清 1 个孤儿 import (`createHash`)
+- 验证: tsc 0 错误, npm test 240 通过 / 0 失败, 线上聊天 200 + 大请求 200
+
+### E. 仓库垃圾
+- 删除 12 个 AppleDouble `._*` 文件; .gitignore 加 `._*`
+- 剩余 2 个 dist/assets/._* 属 li 用户所有, 无权限删 (下次构建自然消失)
+- 回滚点仅 2 个无需清理; TODO/FIXME 零个
+
+### 有意保留 (核实过不是废弃)
+- 50 个 TS 类型/接口零引用 —— 接口文档性质
+- `src/services/degradation.ts` 仍被 backgroundJobs 调 (updateDegradationState)
+- `@fastify/rate-limit` 依赖已装未用 —— 留作全局限流, 删了以后还要装回来
+- `src/public/js/admin-common.js` + `css/app.css` —— layout.ts 的 COMMON_SCRIPTS 正在引用
+- `src/public/admin/` —— 正在跑的后台 UI 构建产物
+
+---
+
 ## 用户拍板三件套落地 (failed回炉 / priority看状态 / 备份外置+演练)
 
 ### ① failed 键 30 分钟自动回炉

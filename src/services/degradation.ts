@@ -128,26 +128,10 @@ export function updateDegradationState(now: number = Date.now()): DegradationSta
   return getDegradationStatus();
 }
 
-export function isDegraded(): boolean {
-  return state.state === 'degraded';
-}
 
 export function getDegradationStatus(): DegradationStatus {
   const snap = lastSnapshot ?? computeHealthSnapshot();
   return { ...snap, state: state.state, degradedAt: state.degradedAt, enteredAt: state.state === 'degraded' ? state.degradedAt : null };
 }
 
-export function resetDegradationState(): void {
-  state.state = 'normal';
-  state.degradedAt = null;
-  state.belowSince = null;
-  state.recoveredSince = null;
-  lastSnapshot = null;
-}
 
-export const DEGRADATION_CONFIG = {
-  HEALTHY_RATIO: DEGRADED_HEALTHY_RATIO,
-  MIN_PROVIDERS: DEGRADED_MIN_PROVIDERS,
-  ENTRY_GRACE_MS: DEGRADED_ENTRY_GRACE_MS,
-  EXIT_GRACE_MS: DEGRADED_EXIT_GRACE_MS,
-};

@@ -21,11 +21,6 @@ export function getDiscoveredModelsForKey(keyId: number): DiscoveredModel[] {
     .all(keyId) as unknown as DiscoveredModel[];
 }
 
-export function getAllDiscoveredModels(): DiscoveredModel[] {
-  return getDb()
-    .prepare('SELECT * FROM discovered_models ORDER BY upstream_id')
-    .all() as unknown as DiscoveredModel[];
-}
 
 export function upsertDiscoveredModel(keyId: number, upstreamId: string): void {
   getDb()
@@ -41,20 +36,6 @@ export function clearDiscoveredModelsForKey(keyId: number): void {
   getDb().prepare('DELETE FROM discovered_models WHERE key_id = ?').run(keyId);
 }
 
-/** 更新模型测试结果 */
-export function updateModelTestResult(keyId: number, upstreamId: string, result: {
-  status: 'ok' | 'error' | 'skip';
-  latencyMs: number;
-  error?: string;
-}): void {
-  getDb()
-    .prepare(
-      `UPDATE discovered_models 
-       SET test_status = ?, test_latency_ms = ?, test_error = ?, tested_at = ?
-       WHERE key_id = ? AND upstream_id = ?`,
-    )
-    .run(result.status, result.latencyMs, result.error ?? null, Date.now(), keyId, upstreamId);
-}
 
 /** 批量更新模型测试结果 */
 export function bulkUpdateModelTestResults(keyId: number, results: Array<{
@@ -73,12 +54,6 @@ export function bulkUpdateModelTestResults(keyId: number, results: Array<{
   }
 }
 
-/** 获取模型的测试结果 */
-export function getDiscoveredModelsWithTestResults(keyId: number): DiscoveredModel[] {
-  return getDb()
-    .prepare('SELECT * FROM discovered_models WHERE key_id = ? ORDER BY upstream_id')
-    .all(keyId) as unknown as DiscoveredModel[];
-}
 
 /** 删除 key 下所有测试失败的模型. 返回被删除的模型名列表 (供调用方同步清理 channels.models) */
 export function deleteFailedModelsForKey(keyId: number): { deleted: number; failedModels: string[] } {

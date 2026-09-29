@@ -46,33 +46,7 @@ export function listChannels(): ChannelWithProvider[] {
     .all() as unknown as ChannelWithProvider[];
 }
 
-export function listMockChannels(): ChannelWithProvider[] {
-  return getDb()
-    .prepare(
-      `SELECT c.*, p.name as provider_name, p.display_name as provider_display_name,
-              p.base_url, p.protocol,
-              (SELECT COUNT(*) FROM keys k WHERE k.channel_id = c.id) as key_count
-       FROM channels c
-       JOIN providers p ON p.id = c.provider_id
-       WHERE p.name IN ('mock', 'builtin')
-       ORDER BY c.id`,
-    )
-    .all() as unknown as ChannelWithProvider[];
-}
 
-export function listRealChannels(): ChannelWithProvider[] {
-  return getDb()
-    .prepare(
-      `SELECT c.*, p.name as provider_name, p.display_name as provider_display_name,
-              p.base_url, p.protocol,
-              (SELECT COUNT(*) FROM keys k WHERE k.channel_id = c.id) as key_count
-       FROM channels c
-       JOIN providers p ON p.id = c.provider_id
-       WHERE p.name NOT IN ('mock', 'builtin')
-       ORDER BY p.name, c.priority, c.id`,
-    )
-    .all() as unknown as ChannelWithProvider[];
-}
 
 export function getChannel(id: number): Channel | null {
   const row = getDb().prepare('SELECT * FROM channels WHERE id = ?').get(id);

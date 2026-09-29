@@ -53,3 +53,4 @@ buildkitd.toml
 
 # 前端构建缓存 (copy-assets 每次重建)
 src/public/admin/
+._*

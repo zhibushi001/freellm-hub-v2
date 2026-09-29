@@ -48,6 +48,22 @@ log "6/7 推送新 dist (先清前端缓存目录, 防旧 hash 残留)"
 docker exec "$CONTAINER" rm -rf /app/dist/public/admin
 tar -C dist -cf - . | docker exec -i "$CONTAINER" tar -C /app/dist -xf -
 
+# 清残留: 删掉容器 dist 里"本地已不存在"的文件。
+# 曾因此类残留 (db/migrations/006_model_routes.sql 孤儿) 被迁移重放, 启动直接崩。
+# 白名单 package.json: 由 Dockerfile 烘焙进 dist/ 供 app.ts 读版本, 本地 dist 里没有。
+(cd dist && find . -type f | sed 's|^.\./||' | LC_ALL=C sort) > /tmp/dist-list.txt
+docker cp /tmp/dist-list.txt "$CONTAINER":/tmp/dist-list.txt
+docker exec "$CONTAINER" sh -c '
+  cd /app/dist || exit 1
+  find . -name "._*" -delete 2>/dev/null
+  find . -type f | sed "s|^.\./||" | LC_ALL=C sort > /tmp/remote.txt
+  comm -23 /tmp/remote.txt /tmp/dist-list.txt | grep -v "^package.json$" > /tmp/stale.txt || true
+  n=0; while IFS= read -r f; do [ -n "$f" ] && rm -rf -- "$f" && n=$((n+1)); done < /tmp/stale.txt
+  find . -type d -empty -delete 2>/dev/null
+  rm -f /tmp/dist-list.txt /tmp/remote.txt /tmp/stale.txt
+  echo "  清残留: 删除 $n 个本地已不存在的文件"
+'
+
 log "7/7 重启 + 健康门禁 (30s)"
 docker restart "$CONTAINER" >/dev/null
 for i in $(seq 1 30); do

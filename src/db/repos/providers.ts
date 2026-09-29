@@ -107,28 +107,6 @@ export function createProvider(input: CreateProviderInput): Provider {
   return getProvider(Number(info.lastInsertRowid))!;
 }
 
-export function updateProvider(
-  id: number,
-  patch: Partial<CreateProviderInput> & { enabled?: number },
-): Provider | null {
-  const fields: string[] = [];
-  const values: any[] = [];
-  const allowed: Array<keyof CreateProviderInput | 'enabled'> = [
-    'display_name', 'base_url', 'protocol', 'api_path', 'models_path',
-    'extra_config', 'signup_url', 'notes', 'enabled', 'plans',
-  ];
-  for (const k of allowed) {
-    if (patch[k] !== undefined) {
-      fields.push(`${k} = ?`);
-      values.push(patch[k]);
-    }
-  }
-  if (fields.length === 0) return getProvider(id);
-  fields.push('updated_at = ?');
-  values.push(Date.now(), id);
-  getDb().prepare(`UPDATE providers SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-  return getProvider(id);
-}
 
 export function deleteProvider(id: number): void {
   getDb().prepare('DELETE FROM providers WHERE id = ?').run(id);

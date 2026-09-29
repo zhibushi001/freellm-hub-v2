@@ -38,6 +38,3 @@ export function buildUpstreamUrl(key: KeyWithChannel, path?: string): string {
   return `${key.base_url.replace(/\/$/, '')}${path ?? key.api_path}`;
 }
 
-export function buildModelsUrl(key: KeyWithChannel): string {
-  return `${key.base_url.replace(/\/$/, '')}${key.models_path}`;
-}

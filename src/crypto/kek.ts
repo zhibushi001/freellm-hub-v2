@@ -63,12 +63,3 @@ export function getMasterKey(): Buffer {
   return _key;
 }
 
-/**
- * 重置主密钥（仅用于完全清空 + 重新开始场景）
- */
-export function resetMasterKey(): Buffer {
-  const key = randomBytes(32);
-  writeFileSync(KEY_FILE, key, { mode: 0o600 });
-  _key = key;
-  return _key;
-}
