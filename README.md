@@ -9,6 +9,8 @@
 
 [English](#english) | [中文](#中文)
 
+🌐 **产品介绍单页 / Product page**: [docs/product/index.html](./docs/product/index.html) — 单文件中英双语，可直接挂载到你的网站 / single-file bilingual landing page, host it anywhere
+
 ---
 
 ## 📚 文档导航
@@ -20,6 +22,7 @@
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | **当前**架构与模块说明 (以此为准) |
 | [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) | 后台功能使用指南 |
 | [docs/RESTORE.md](./docs/RESTORE.md) | 灾难恢复手册 (已实际演练) |
+| [docs/product/index.html](./docs/product/index.html) | 🌐 产品介绍单页 (中英双语, 可挂载到网站) |
 | [CHANGELOG.md](./CHANGELOG.md) | 版本与迭代记录 (含开发过程) |
 | [SECURITY.md](./SECURITY.md) | 安全说明与已知限制 |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | 贡献指南 |
@@ -99,9 +102,11 @@
 - 🔑 **多 Provider 多 Key 管理** — 16+ Provider，内置 MiniMax / Agnes / DeepSeek / 商汤 / OpenAI / Anthropic / Gemini 等适配器
 - 🛡️ **故障转移 + 冷却** — 主模型挂了自动切备用模型，失败的 Key 自动封禁
 - 🎯 **路由策略** — 模型映射（请求模型 → 实际模型）+ 虚拟模型（一个名字背后挂多个候选）+ 模型路由
-- 🔐 **零妥协安全** — AES-256-GCM 加密所有上游 Key，bcrypt 管理员密码，Hub Key + 模型白名单
+- 🔐 **零妥协安全** — AES-256-GCM 加密所有上游 Key，Argon2id 管理员密码，Hub Key + 模型白名单
 - 📊 **完整可观测性** — 每次请求都追踪，失败原因清晰可见
 - 🪶 **极轻部署** — 单 Docker 容器 + SQLite (Node 22+ 内置)，**零 native 依赖**
+- 🔔 **事件告警** — Key 被拉黑 / 备份失败 / 全部不可用等关键事件，一键推送飞书、企业微信、钉钉或任意 Webhook（10 分钟去重）
+- 🚀 **可回滚的一键部署** — `./scripts/deploy.sh`：构建 → 孤儿校验 → 推送 → 健康门禁，任一步失败自动回滚；备份每日自动且落在数据卷之外，[恢复手册](./docs/RESTORE.md)已实机演练
 
 ### 🚀 30 秒启动
 
@@ -120,6 +125,8 @@ open http://localhost:3030
 ```
 
 首次进入会引导你注册管理员账号 → 添加 Provider → 创建 Hub Key → 完成。
+
+> 从源码部署可直接用 `./scripts/deploy.sh`：构建 → 孤儿校验 → 推送 → 健康门禁，失败自动回滚。
 
 📚 详细安装指南：[INSTALL.md](./INSTALL.md) | 运维升级指南：[DEPLOY.md](./DEPLOY.md)
 
@@ -226,9 +233,11 @@ A self-hosted LLM API gateway that unifies all your API keys behind one endpoint
 - 🔑 **Multi-Provider Key Management** — 16+ providers with built-in adapters for MiniMax, Agnes, DeepSeek, SenseNova, OpenAI, Anthropic, Gemini, etc.
 - 🛡️ **Failover + Cooldown** — Automatic fallback when primary fails, automatic quarantine of broken keys
 - 🎯 **Routing Policies** — Model aliasing, virtual models (one name → multiple candidates), model routes
-- 🔐 **Zero-compromise Security** — AES-256-GCM encryption for upstream keys, bcrypt admin password, Hub Keys with model allow-lists
+- 🔐 **Zero-compromise Security** — AES-256-GCM encryption for upstream keys, Argon2id admin password, Hub Keys with model allow-lists
 - 📊 **Full Observability** — Every request tracked, failure reasons visible
 - 🪶 **Minimal Footprint** — Single Docker container + SQLite (Node 22+ built-in), **zero native dependencies**
+- 🔔 **Event Alerts** — critical events (key blacklisted, backup failed, everything down) pushed to Feishu / WeCom / DingTalk / any webhook with 10-minute dedup
+- 🚀 **One-click Deploy with Auto-rollback** — `./scripts/deploy.sh`: build → orphan check → push → health gate, auto-rollback on any failure; daily backups live outside the data volume and the [restore runbook](./docs/RESTORE.md) is drill-tested
 
 ### 🚀 30-second start
 
@@ -247,6 +256,8 @@ open http://localhost:3030
 ```
 
 First visit guides you through admin registration → adding a Provider → creating a Hub Key → done.
+
+> From source: `./scripts/deploy.sh` does build → orphan check → push → health gate, with auto-rollback on failure.
 
 📚 Detailed guides: [INSTALL.md](./INSTALL.md) | [DEPLOY.md](./DEPLOY.md)
 

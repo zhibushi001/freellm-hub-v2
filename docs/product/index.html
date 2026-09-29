@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FreeLLM Hub — 自托管统一 LLM API 网关 | Self-hosted Unified LLM Gateway</title>
+<meta name="description" content="FreeLLM Hub: 把你手里的所有 LLM API Key 收进一个自托管网关 — OpenAI/Anthropic 兼容, 智能路由, 故障转移, 内容护栏, 一键部署。">
+<meta property="og:title" content="FreeLLM Hub — 自托管统一 LLM API 网关">
+<meta property="og:description" content="一个 Base URL, 一个 Key, 接管你所有的 LLM API。OpenAI / Anthropic 兼容 · 智能路由 · 故障转移 · 自动部署回滚。">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='.5' stop-color='%23818cf8'/%3E%3Cstop offset='1' stop-color='%23e879f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%23070b18'/%3E%3Cpath d='M9 17.5 14 22l9-11' stroke='url(%23g)' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#070b18; --bg2:#0a1020; --panel:rgba(255,255,255,.04); --line:rgba(255,255,255,.09);
+  --tx:#e7edf9; --mut:#94a6c0; --dim:#6b7c96;
+  --c1:#22d3ee; --c2:#818cf8; --c3:#e879f9;
+  --grad:linear-gradient(120deg,#22d3ee,#818cf8 48%,#e879f9);
+  --ok:#34d399; --warn:#fbbf24;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+html[data-lang="zh"] .lang.en,html[data-lang="en"] .lang.zh{display:none!important}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+.wrap{max-width:1140px;margin:0 auto;padding:0 22px}
+
+/* ── nav ── */
+nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(7,11,24,.78);border-bottom:1px solid var(--line)}
+.nav-in{display:flex;align-items:center;gap:26px;height:62px;max-width:1140px;margin:0 auto;padding:0 22px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;letter-spacing:.2px}
+.brand svg{width:26px;height:26px}
+.nav-links{display:flex;gap:22px;font-size:14.5px;color:var(--mut);margin-left:6px}
+.nav-links a:hover{color:var(--tx)}
+.nav-act{margin-left:auto;display:flex;gap:10px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 15px;border-radius:10px;font-size:14px;font-weight:600;border:1px solid var(--line);color:var(--tx);background:var(--panel);cursor:pointer;transition:.18s;white-space:nowrap}
+.btn:hover{border-color:rgba(255,255,255,.24);transform:translateY(-1px)}
+.btn-pri{background:var(--grad);color:#07101f;border:none;font-weight:800}
+.btn-pri:hover{filter:brightness(1.08)}
+#langBtn{min-width:74px;justify-content:center;font-family:var(--mono)}
+@media(max-width:880px){.nav-links{display:none}}
+
+/* ── hero ── */
+header{position:relative;padding:88px 0 64px;overflow:hidden}
+.blob{position:absolute;border-radius:50%;filter:blur(110px);opacity:.42;pointer-events:none}
+.b1{width:520px;height:520px;background:#0ea5e9;top:-190px;left:-140px}
+.b2{width:480px;height:480px;background:#7c3aed;top:-60px;right:-160px}
+.b3{width:420px;height:420px;background:#d946ef;bottom:-240px;left:38%}
+.grid-bg{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(ellipse 90% 70% at 50% 0,#000 30%,transparent 75%);pointer-events:none}
+.hero{position:relative;display:grid;grid-template-columns:1.08fr .92fr;gap:46px;align-items:center}
+@media(max-width:940px){.hero{grid-template-columns:1fr;gap:34px}}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-size:13px;color:var(--mut);margin-bottom:22px}
+.chip b{color:var(--c1);font-weight:700}
+h1{font-size:clamp(34px,5vw,54px);line-height:1.16;font-weight:900;letter-spacing:-.5px}
+.grad{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{margin-top:18px;font-size:17px;color:var(--mut);max-width:540px}
+.cta{display:flex;gap:14px;margin-top:30px;flex-wrap:wrap}
+.cta .btn{padding:12px 22px;font-size:15px}
+.metaline{margin-top:26px;display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--dim)}
+.metaline span{display:flex;gap:6px;align-items:center}
+
+/* terminal */
+.term{background:#05080f;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.03);position:relative}
+.term::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgba(34,211,238,.07),transparent 40%,rgba(232,121,249,.06));pointer-events:none}
+.term-bar{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)}
+.dot{width:11px;height:11px;border-radius:50%}
+.term-bar .t{margin-left:8px;font:12px var(--mono);color:var(--dim)}
+.term pre{padding:20px 18px;font:13px/1.75 var(--mono);color:#c9d6ea;white-space:pre-wrap;word-break:break-all}
+.c-prompt{color:var(--c1)} .c-cmd{color:#e7edf9} .c-ok{color:var(--ok)} .c-mut{color:var(--dim)} .c-key{color:var(--c3)} .c-num{color:var(--warn)}
+.float-chips{position:absolute;inset:auto 0 -18px 0;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;pointer-events:none}
+.fchip{font-size:11.5px;padding:5px 11px;border-radius:999px;background:#0d1426;border:1px solid var(--line);color:var(--mut);box-shadow:0 8px 20px rgba(0,0,0,.5)}
+.badge-ok{position:absolute;top:64px;right:-14px;background:#062a1c;border:1px solid rgba(52,211,153,.4);color:var(--ok);font:700 12px var(--mono);padding:6px 12px;border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.6);z-index:2}
+@media(max-width:940px){.badge-ok{display:none}}
+
+/* stats */
+.stats{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(255,255,255,.015);margin-top:72px}
+.stats-in{display:grid;grid-template-columns:repeat(6,1fr);max-width:1140px;margin:0 auto}
+@media(max-width:880px){.stats-in{grid-template-columns:repeat(3,1fr)}}
+.stat{padding:26px 14px;text-align:center;border-right:1px solid var(--line)}
+.stat:last-child{border-right:none}
+.stat .n{font-size:26px;font-weight:900;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.stat .l{font-size:12.5px;color:var(--dim);margin-top:3px}
+@media(max-width:880px){.stat:nth-child(3){border-right:none}.stat:nth-child(-n+3){border-bottom:1px solid var(--line)}}
+
+/* sections */
+section{padding:82px 0}
+.kicker{font:700 13px var(--mono);letter-spacing:2.5px;text-transform:uppercase;color:var(--c1);margin-bottom:12px}
+h2{font-size:clamp(26px,3.4vw,36px);font-weight:900;letter-spacing:-.4px}
+.sec-sub{color:var(--mut);margin-top:12px;max-width:640px;font-size:16px}
+
+/* features */
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-top:44px}
+.feat{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px 24px;transition:.22s;position:relative;overflow:hidden}
+.feat::before{content:"";position:absolute;inset:0;background:linear-gradient(140deg,rgba(34,211,238,.09),transparent 45%);opacity:0;transition:.25s}
+.feat:hover{transform:translateY(-4px);border-color:rgba(129,140,248,.45);box-shadow:0 24px 50px -28px rgba(129,140,248,.55)}
+.feat:hover::before{opacity:1}
+.feat .ic{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,rgba(34,211,238,.16),rgba(232,121,249,.16));display:grid;place-items:center;font-size:21px;margin-bottom:15px;border:1px solid var(--line)}
+.feat h3{font-size:16.5px;font-weight:800;margin-bottom:8px;position:relative}
+.feat p{font-size:14px;color:var(--mut);position:relative}
+.feat .tagline{font:11.5px var(--mono);color:var(--dim);margin-top:12px;position:relative}
+
+/* architecture */
+.arch{margin-top:46px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:34px 28px;overflow-x:auto}
+.arch-row{display:grid;grid-template-columns:1fr 46px 1.35fr 46px 1fr;gap:0;align-items:center;min-width:820px}
+.node{background:#0b1327;border:1px solid var(--line);border-radius:14px;padding:18px;text-align:center}
+.node .tt{font-weight:800;font-size:15px}
+.node .dd{font-size:12.5px;color:var(--dim);margin-top:6px;line-height:1.5}
+.arrow{display:grid;place-items:center;color:var(--c1);font-size:20px}
+.hub{background:linear-gradient(150deg,rgba(34,211,238,.1),rgba(129,140,248,.1) 55%,rgba(232,121,249,.1));border:1px solid rgba(129,140,248,.45);box-shadow:0 0 50px -20px rgba(129,140,248,.6)}
+.layers{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.layer{font:11.5px var(--mono);padding:4px 9px;border-radius:7px;background:rgba(0,0,0,.35);border:1px solid var(--line);color:var(--mut)}
+.arch-legend{text-align:center;font-size:12.5px;color:var(--dim);margin-top:16px}
+
+/* quickstart */
+.tabs{display:flex;gap:8px;margin-top:40px;flex-wrap:wrap}
+.tab{padding:9px 17px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:14px;font-weight:600;cursor:pointer;transition:.18s}
+.tab.on{background:var(--grad);color:#07101f;border-color:transparent;font-weight:800}
+.pane{display:none;margin-top:20px}
+.pane.on{display:block;animation:fade .3s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.codecard{position:relative;background:#05080f;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.codecard pre{padding:20px 18px;font:13px/1.8 var(--mono);color:#c9d6ea;white-space:pre-wrap;word-break:break-all}
+.copy{position:absolute;top:12px;right:12px;font-size:12px;padding:6px 12px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid var(--line);color:var(--mut);cursor:pointer}
+.copy:hover{color:var(--tx);border-color:rgba(255,255,255,.3)}
+.note{margin-top:14px;font-size:13.5px;color:var(--dim);border-left:3px solid var(--c2);padding-left:12px}
+table.cfg{width:100%;border-collapse:collapse;margin-top:6px;font-size:14px;min-width:640px}
+table.cfg th,table.cfg td{border:1px solid var(--line);padding:11px 14px;text-align:left}
+table.cfg th{background:rgba(255,255,255,.04);font-weight:700;font-size:13px;color:var(--mut)}
+table.cfg code{font:12.5px var(--mono);color:var(--c1);background:rgba(34,211,238,.08);padding:2px 7px;border-radius:6px}
+.scroll-x{overflow-x:auto}
+
+/* screenshots */
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-top:44px}
+figure{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden;transition:.22s}
+figure:hover{transform:translateY(-4px);border-color:rgba(129,140,248,.4)}
+figure img{width:100%;height:230px;object-fit:cover;object-position:top}
+figcaption{padding:13px 16px;font-size:13.5px;color:var(--mut);display:flex;justify-content:space-between;gap:8px}
+figcaption b{color:var(--tx);font-weight:700}
+
+/* compare */
+.cmp{margin-top:44px;overflow-x:auto}
+table.cmp-t{width:100%;border-collapse:collapse;font-size:14.5px;min-width:660px}
+table.cmp-t th,table.cmp-t td{border:1px solid var(--line);padding:13px 16px;text-align:left}
+table.cmp-t th{background:rgba(255,255,255,.04);font-weight:800}
+table.cmp-t td:first-child{color:var(--mut)}
+.yes{color:var(--ok);font-weight:700}.no{color:#f87171;font-weight:700}.mid{color:var(--warn);font-weight:700}
+.hl{background:rgba(129,140,248,.1)}
+
+/* docs cards */
+.doc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:44px}
+.doc{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:22px;transition:.2s;display:block}
+.doc:hover{transform:translateY(-3px);border-color:rgba(34,211,238,.5);box-shadow:0 18px 40px -26px rgba(34,211,238,.6)}
+.doc .n{font-weight:800;font-size:15.5px;display:flex;align-items:center;gap:9px}
+.doc .n .arr{margin-left:auto;color:var(--c1);transition:.2s}
+.doc:hover .arr{transform:translateX(4px)}
+.doc p{font-size:13px;color:var(--dim);margin-top:8px}
+
+/* roadmap */
+.road{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:40px}
+.rcard{border:1px solid var(--line);border-radius:15px;padding:20px 22px;background:var(--panel)}
+.rcard.cur{border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.05)}
+.rtag{font:700 11.5px var(--mono);padding:3px 9px;border-radius:6px;display:inline-block;margin-bottom:10px}
+.rtag.done{background:rgba(52,211,153,.15);color:var(--ok)}
+.rtag.wip{background:rgba(251,191,36,.14);color:var(--warn)}
+.rtag.next{background:rgba(129,140,248,.15);color:var(--c2)}
+.rcard h4{font-size:15.5px;margin-bottom:6px}
+.rcard p{font-size:13.5px;color:var(--mut)}
+
+/* footer */
+footer{border-top:1px solid var(--line);padding:46px 0 40px;background:rgba(255,255,255,.015);margin-top:40px}
+.foot{display:flex;justify-content:space-between;gap:26px;flex-wrap:wrap;align-items:flex-start}
+.foot .about{max-width:460px;font-size:14px;color:var(--mut)}
+.foot .links{display:flex;gap:36px;flex-wrap:wrap}
+.foot h5{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+.foot ul{list-style:none;font-size:14px;display:grid;gap:7px;color:var(--mut)}
+.foot ul a:hover{color:var(--c1)}
+.copyline{margin-top:34px;padding-top:22px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--dim)}
+
+/* reveal */
+.rv{opacity:0;transform:translateY(22px);transition:.6s cubic-bezier(.2,.7,.3,1)}
+.rv.in{opacity:1;transform:none}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-in">
+    <a class="brand" href="#">
+      <svg viewBox="0 0 32 32"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset=".5" stop-color="#818cf8"/><stop offset="1" stop-color="#e879f9"/></linearGradient></defs><rect width="32" height="32" rx="8" fill="#070b18" stroke="rgba(255,255,255,.12)"/><path d="M9 17.5 14 22l9-11" stroke="url(#lg)" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      FreeLLM Hub
+    </a>
+    <div class="nav-links">
+      <a href="#features"><span class="lang zh">功能</span><span class="lang en">Features</span></a>
+      <a href="#architecture"><span class="lang zh">架构</span><span class="lang en">Architecture</span></a>
+      <a href="#quickstart"><span class="lang zh">快速开始</span><span class="lang en">Quick Start</span></a>
+      <a href="#docs"><span class="lang zh">文档</span><span class="lang en">Docs</span></a>
+    </div>
+    <div class="nav-act">
+      <button class="btn" id="langBtn">中 / EN</button>
+      <a class="btn" href="https://github.com/zhibushi" target="_blank" rel="noopener">⭐ GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header>
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="grid-bg"></div>
+  <div class="wrap">
+    <div class="hero">
+      <div>
+        <div class="chip"><b>●</b> <span class="lang zh">自托管 · 开源免费 · MIT 协议</span><span class="lang en">Self-hosted · Free · MIT License</span></div>
+        <h1>
+          <span class="lang zh">你手里的所有 LLM Key，<br><span class="grad">交给一个网关</span></span>
+          <span class="lang en">Every LLM key you own,<br><span class="grad">one gateway to rule them</span></span>
+        </h1>
+        <p class="sub">
+          <span class="lang zh">OpenAI、Anthropic、Gemini、DeepSeek、商汤、MiniMax……统一收进一个自托管网关。给所有 Agent 工具一个 Base URL + 一个 Key，即插即用；故障自动转移、配额自动避让、用量一目了然。</span>
+          <span class="lang en">OpenAI, Anthropic, Gemini, DeepSeek, SenseNova, MiniMax… all behind one self-hosted gateway. One Base URL, one key, for every agent tool — with automatic failover, quota awareness and full analytics.</span>
+        </p>
+        <div class="cta">
+          <a class="btn btn-pri" href="#quickstart">🚀 <span class="lang zh">30 秒开始</span><span class="lang en">Get started in 30s</span></a>
+          <a class="btn" href="#docs">📚 <span class="lang zh">查看文档</span><span class="lang en">Read the docs</span></a>
+        </div>
+        <div class="metaline">
+          <span>🪶 <span class="lang zh">单容器 + SQLite，零原生依赖</span><span class="lang en">Single container + SQLite, zero native deps</span></span>
+          <span>🔐 <span class="lang zh">AES-256-GCM + Argon2id</span><span class="lang en">AES-256-GCM + Argon2id</span></span>
+          <span>🧪 <span class="lang zh">208 测试全绿</span><span class="lang en">208 tests green</span></span>
+        </div>
+      </div>
+
+      <div style="position:relative">
+        <div class="badge-ok">200 OK · 0.7s</div>
+        <div class="term">
+          <div class="term-bar">
+            <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+            <span class="t">~/freellm-hub</span>
+          </div>
+<pre><span class="c-prompt">$</span> <span class="c-cmd">docker run -d -p 3030:3030 \
+    -v ./data:/app/data freellm-hub</span>
+<span class="c-ok">✓ healthy</span> <span class="c-mut">migrations_pending=0  version=2.0.0</span>
+
+<span class="c-prompt">$</span> <span class="c-cmd">curl $HUB/v1/chat/completions \
+    -H "Authorization: Bearer fh_..." \
+    -d '{"model":"sensenova-6.8-flash-lite",...}'</span>
+<span class="c-ok">200</span> <span class="c-mut">→ 商汤 / sensenova · 华东 / k-03 · 720ms</span>
+<span class="c-ok">200</span> <span class="c-mut">→ stream 128 tok/s  <span class="c-key">[DONE]</span></span></pre>
+        </div>
+        <div class="float-chips">
+          <span class="fchip">OpenAI 兼容</span><span class="fchip">Anthropic 兼容</span><span class="fchip">SSE 流式</span><span class="fchip">自动故障转移</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stats-in">
+      <div class="stat"><div class="n">16+</div><div class="l"><span class="lang zh">Provider 适配</span><span class="lang en">Providers</span></div></div>
+      <div class="stat"><div class="n">12</div><div class="l"><span class="lang zh">客户端接口</span><span class="lang en">Client APIs</span></div></div>
+      <div class="stat"><div class="n">14</div><div class="l"><span class="lang zh">后台页面</span><span class="lang en">Admin pages</span></div></div>
+      <div class="stat"><div class="n">208</div><div class="l"><span class="lang zh">自动化测试</span><span class="lang en">Tests green</span></div></div>
+      <div class="stat"><div class="n">0</div><div class="l"><span class="lang zh">原生依赖</span><span class="lang en">Native deps</span></div></div>
+      <div class="stat"><div class="n">MIT</div><div class="l"><span class="lang zh">开源协议</span><span class="lang en">License</span></div></div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ features ═══ -->
+<section id="features">
+  <div class="wrap">
+    <div class="rv">
+      <div class="kicker">Features</div>
+      <h2><span class="lang zh">一个网关，把杂乱变成秩序</span><span class="lang en">One gateway, from chaos to order</span></h2>
+      <p class="sec-sub">
+        <span class="lang zh">不是又一个"API 转发器"——从密钥加密、智能路由到告警回滚，生产环境需要的每一环都补齐了。</span>
+        <span class="lang en">Not just another proxy — from key encryption and smart routing to alerts and rollback, every production box is ticked.</span>
+      </p>
+    </div>
+    <div class="feat-grid">
+      <div class="feat rv"><div class="ic">🔌</div>
+        <h3><span class="lang zh">统一多协议入口</span><span class="lang en">One endpoint, every protocol</span></h3>
+        <p><span class="lang zh">Chat（含流式 SSE）、Anthropic Messages、Responses、Embeddings、图像、音频、视频、模型列表——12 个客户端接口，任何兼容 SDK 即插即用。</span>
+        <span class="lang en">Chat (SSE streaming), Anthropic Messages, Responses, embeddings, images, audio, video, models — 12 client endpoints any compatible SDK can use.</span></p>
+        <div class="tagline">/v1/chat/completions · /v1/messages · /v1/responses …</div>
+      </div>
+      <div class="feat rv"><div class="ic">🎯</div>
+        <h3><span class="lang zh">智能路由与故障转移</span><span class="lang en">Smart routing &amp; failover</span></h3>
+        <p><span class="lang zh">Thompson 采样动态评分，4 种内置策略（均衡 / 最智能 / 最快 / 最可靠）+ 手动排序；主模型失败自动切备用链，三层跳过，60 秒预算封顶。</span>
+        <span class="lang en">Thompson-sampling scoring, 4 presets (balanced / smartest / fastest / reliable) plus manual priority; failed models fall through a backup chain under a 60s budget.</span></p>
+        <div class="tagline">resolver → selector → scorer → failover</div>
+      </div>
+      <div class="feat rv"><div class="ic">🧊</div>
+        <h3><span class="lang zh">配额与冷却自愈</span><span class="lang en">Quota-aware cooldowns</span></h3>
+        <p><span class="lang zh">429/402/5xx 自动冷却并阶梯升级时长，探活 1 分钟早恢复；黑名的 Key 30 分钟自动回炉；rpm/rpd/tpm 限额随时可设。</span>
+        <span class="lang en">Auto-cooldown on 429/402/5xx with escalating durations, 1-minute probe recovery, blacklisted keys rehabilitate after 30 minutes; rpm/rpd/tpm limits included.</span></p>
+        <div class="tagline">ladder: 2m → 10m → 1h → 24h</div>
+      </div>
+      <div class="feat rv"><div class="ic">🛡️</div>
+        <h3><span class="lang zh">内容护栏</span><span class="lang en">Content guardrails</span></h3>
+        <p><span class="lang zh">输入/输出双向过滤：关键词拦截、PII 检测、长度上限，可按需开关并即时生效。</span>
+        <span class="lang en">Bidirectional input/output filtering: keyword blocking, PII detection and length limits — switchable, effective immediately.</span></p>
+        <div class="tagline">blocked_keywords · pii_detection · max_length</div>
+      </div>
+      <div class="feat rv"><div class="ic">🔐</div>
+        <h3><span class="lang zh">零妥协安全</span><span class="lang en">Security first</span></h3>
+        <p><span class="lang zh">上游 Key 全部 AES-256-GCM 加密落盘（主密钥独立文件），管理员密码 Argon2id，Hub Key 支持模型白名单，全管理端点强制鉴权。</span>
+        <span class="lang en">Upstream keys encrypted at rest with AES-256-GCM, Argon2id admin passwords, per-key model allow-lists, every admin endpoint authenticated.</span></p>
+        <div class="tagline">AES-256-GCM · Argon2id · hub_key allow-list</div>
+      </div>
+      <div class="feat rv"><div class="ic">📊</div>
+        <h3><span class="lang zh">完整可观测性</span><span class="lang en">Full observability</span></h3>
+        <p><span class="lang zh">每次请求入库可追踪，失败归因清晰；按模型 / 渠道 / 错误多维统计，24 小时趋势一屏看完。</span>
+        <span class="lang en">Every request logged and traceable with clear failure attribution; model / channel / error analytics with 24h trend charts.</span></p>
+        <div class="tagline">usage_logs · request_attempts · trend</div>
+      </div>
+      <div class="feat rv"><div class="ic">🔔</div>
+        <h3><span class="lang zh">事件告警</span><span class="lang en">Event alerts</span></h3>
+        <p><span class="lang zh">Key 被拉黑、备份失败、全部不可用……关键事件 10 分钟去重后推送到飞书 / 企业微信 / 钉钉 / 任意 Webhook。</span>
+        <span class="lang en">Key blacklisted, backup failed, everything down… critical events (10-min dedup) pushed to Feishu / WeCom / DingTalk / any webhook.</span></p>
+        <div class="tagline">notify_webhook_url · feishu · wecom · dingtalk</div>
+      </div>
+      <div class="feat rv"><div class="ic">🚀</div>
+        <h3><span class="lang zh">可回滚的运维</span><span class="lang en">Rollback-safe ops</span></h3>
+        <p><span class="lang zh">一键部署脚本：构建 → 孤儿校验 → 推送 → 健康门禁，任一步失败自动回滚；每日备份落在数据卷之外，恢复手册经过实机演练。</span>
+        <span class="lang en">One-click deploy: build → orphan check → push → health gate with auto-rollback; daily backups outside the data volume, restore runbook battle-tested.</span></p>
+        <div class="tagline">./scripts/deploy.sh · hub-backups/ · RESTORE.md</div>
+      </div>
+      <div class="feat rv"><div class="ic">🎛️</div>
+        <h3><span class="lang zh">React 管理后台</span><span class="lang en">React admin console</span></h3>
+        <p><span class="lang zh">14 个页面完整覆盖渠道、密钥、路由、统计与测试场；移动端完全适配 + 暗色模式。</span>
+        <span class="lang en">14 pages covering channels, keys, routing, analytics and playground; fully mobile-responsive with dark mode.</span></p>
+        <div class="tagline">React 18 + Vite + Tailwind</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ architecture ═══ -->
+<section id="architecture" style="background:rgba(255,255,255,.012);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="rv">
+      <div class="kicker">Architecture</div>
+      <h2><span class="lang zh">请求是怎么走的</span><span class="lang en">How a request flows</span></h2>
+      <p class="sec-sub">
+        <span class="lang zh">四层防线各司其职：鉴权 → 路由 → 护栏 → 缓存；上游 Key 解密只发生在内存里。</span>
+        <span class="lang en">Four layers, clear duties: auth → routing → guard → cache. Upstream keys are decrypted in memory only.</span>
+      </p>
+    </div>
+    <div class="arch rv">
+      <div class="arch-row">
+        <div class="node">
+          <div class="tt"><span class="lang zh">客户端 / Agent</span><span class="lang en">Clients / Agents</span></div>
+          <div class="dd">Cline · Claude Code · Codex CLI<br>ChatBox · Hermes · 任意 OpenAI SDK</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="node hub">
+          <div class="tt">FreeLLM Hub <span class="lang zh">网关</span><span class="lang en">Gateway</span></div>
+          <div class="layers">
+            <span class="layer">Auth · hub_key</span>
+            <span class="layer">Route · resolver/selector</span>
+            <span class="layer">Score · Thompson</span>
+            <span class="layer">Failover · 3-layer</span>
+            <span class="layer">Guard · 内容护栏</span>
+            <span class="layer">Cache · 可选</span>
+          </div>
+          <div class="dd" style="margin-top:10px">Fastify · TypeScript · SQLite (node:sqlite)</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="node">
+          <div class="tt"><span class="lang zh">上游 Provider ×16</span><span class="lang en">Upstream ×16</span></div>
+          <div class="dd">MiniMax · Agnes · DeepSeek · 商汤<br>OpenAI · Anthropic · Gemini · …</div>
+        </div>
+      </div>
+      <div class="arch-legend">
+        <span class="lang zh">失败自动换 Key / 换模型 / 换渠道 · 冷却与配额自动避让 · 全链路写入用量日志</span>
+        <span class="lang en">Failures automatically switch key / model / channel · cooldowns &amp; quotas avoided · every hop logged</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ quickstart ═══ -->
+<section id="quickstart">
+  <div class="wrap">
+    <div class="rv">
+      <div class="kicker">Quick Start</div>
+      <h2><span class="lang zh">30 秒接入</span><span class="lang en">Up and running in 30 seconds</span></h2>
+      <p class="sec-sub">
+        <span class="lang zh">首次访问会引导你注册管理员 → 添加 Provider → 创建 Hub Key，然后把 Base URL 填进任何工具。</span>
+        <span class="lang en">First visit walks you through admin signup → add a provider → create a hub key, then paste the Base URL into any tool.</span>
+      </p>
+    </div>
+
+    <div class="tabs rv">
+      <button class="tab on" data-pane="p1"><span class="lang zh">🐳 Docker 一键</span><span class="lang en">🐳 Docker</span></button>
+      <button class="tab" data-pane="p2"><span class="lang zh">📦 源码部署</span><span class="lang en">📦 From source</span></button>
+      <button class="tab" data-pane="p3"><span class="lang zh">🛠️ 接入你的工具</span><span class="lang en">🛠️ Wire your tools</span></button>
+    </div>
+
+    <div class="pane on" id="p1">
+      <div class="codecard">
+        <button class="copy" data-copy="c1">复制 / Copy</button>
+        <pre id="c1"><span class="c-prompt">$</span> mkdir -p ~/freellm-hub &amp;&amp; cd ~/freellm-hub
+<span class="c-prompt">$</span> docker run -d \
+    --name freellm-hub \
+    --restart unless-stopped \
+    -p 3030:3030 \
+    -v <span class="c-key">$(pwd)</span>/data:/app/data \
+    -e TZ=Asia/Shanghai \
+    ghcr.io/zhibushi001/freellm-hub:v2.0.0
+
+<span class="c-mut"># 等几秒后访问</span>
+<span class="c-prompt">$</span> open http://localhost:3030</pre>
+      </div>
+      <div class="note">
+        <span class="lang zh">数据全部落在挂载的 data/ 目录：数据库、加密主密钥、每日备份。升级只需换镜像版本。</span>
+        <span class="lang en">Everything lives in the mounted data/ directory: database, encryption master key, daily backups. Upgrading = new image tag.</span>
+      </div>
+    </div>
+
+    <div class="pane" id="p2">
+      <div class="codecard">
+        <button class="copy" data-copy="c2">复制 / Copy</button>
+        <pre id="c2"><span class="c-prompt">$</span> git clone &lt;repo-url&gt; freellm-hub &amp;&amp; cd freellm-hub
+<span class="c-prompt">$</span> npm install
+
+<span class="c-mut"># 一键: 构建 → 孤儿校验 → 备份回滚点 → 推送 → 健康门禁 (失败自动回滚)</span>
+<span class="c-prompt">$</span> ./scripts/deploy.sh
+<span class="c-ok">[deploy] ✓ 部署成功 — healthy, migrations_pending=0</span>
+
+<span class="c-mut"># 日常回归</span>
+<span class="c-prompt">$</span> npm test          <span class="c-mut"># 208 用例: 单元 + e2e</span></pre>
+      </div>
+      <div class="note">
+        <span class="lang zh">也可用仓库自带的 docker-compose.yml：卷名标为 external、停止宽限 60s、备份目录挂到卷外。</span>
+        <span class="lang en">The bundled docker-compose.yml marks the volume external, grants a 60s stop grace period and mounts backups outside the volume.</span>
+      </div>
+    </div>
+
+    <div class="pane" id="p3">
+      <div class="scroll-x">
+        <table class="cfg">
+          <tr><th><span class="lang zh">工具类型</span><span class="lang en">Tool type</span></th><th>Base URL</th><th>API Key</th></tr>
+          <tr><td><span class="lang zh">OpenAI 兼容（Cline、ChatBox、Hermes…）</span><span class="lang en">OpenAI-compatible (Cline, ChatBox, Hermes…)</span></td><td><code>http://your-hub:3030/v1</code></td><td><code>fh_…</code></td></tr>
+          <tr><td><span class="lang zh">Anthropic 兼容（Claude Code…）</span><span class="lang en">Anthropic-compatible (Claude Code…)</span></td><td><code>http://your-hub:3030</code></td><td><code>fh_…</code></td></tr>
+          <tr><td><span class="lang zh">OpenAI Responses（Codex CLI…）</span><span class="lang en">OpenAI Responses (Codex CLI…)</span></td><td><code>http://your-hub:3030/v1</code></td><td><code>fh_…</code></td></tr>
+        </table>
+      </div>
+      <div class="note">
+        <span class="lang zh">Hub Key 在后台「Hub Keys」页创建，可限定每个 Key 只能调用哪些模型。</span>
+        <span class="lang en">Create hub keys in the Hub Keys page — optionally restricting each key to specific models.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ screenshots ═══ -->
+<section style="background:rgba(255,255,255,.012);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="rv">
+      <div class="kicker">Dashboard</div>
+      <h2><span class="lang zh">后台长这样</span><span class="lang en">Inside the console</span></h2>
+      <p class="sec-sub"><span class="lang zh">移动端适配 + 暗色模式，14 个页面。</span><span class="lang en">Mobile-ready with dark mode, 14 pages.</span></p>
+    </div>
+    <div class="shots rv" id="shots">
+      <figure><img src="../screenshots/dashboard.png" alt="Dashboard" onerror="this.closest('figure').remove()"><figcaption><b>🏠 <span class="lang zh">总览</span><span class="lang en">Dashboard</span></b><span class="lang zh">实时统计 · 24h 趋势</span><span class="lang en">Live stats · 24h trend</span></figcaption></figure>
+      <figure><img src="../screenshots/channels.png" alt="Channels" onerror="this.closest('figure').remove()"><figcaption><b>🔌 <span class="lang zh">渠道管理</span><span class="lang en">Channels</span></b><span class="lang zh">Provider / Key / 限速</span><span class="lang en">Provider / keys / limits</span></figcaption></figure>
+      <figure><img src="../screenshots/usage.png" alt="Usage" onerror="this.closest('figure').remove()"><figcaption><b>📊 <span class="lang zh">用量统计</span><span class="lang en">Usage</span></b><span class="lang zh">模型 / 渠道 / 错误</span><span class="lang en">Model / channel / errors</span></figcaption></figure>
+      <figure><img src="../screenshots/guardrails.png" alt="Guardrails" onerror="this.closest('figure').remove()"><figcaption><b>🛡️ <span class="lang zh">内容护栏</span><span class="lang en">Guardrails</span></b><span class="lang zh">关键词 / PII / 长度</span><span class="lang en">Keywords / PII / length</span></figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ why ═══ -->
+<section>
+  <div class="wrap">
+    <div class="rv">
+      <div class="kicker">Why FreeLLM Hub</div>
+      <h2><span class="lang zh">为什么选它</span><span class="lang en">Why this one</span></h2>
+    </div>
+    <div class="cmp rv">
+      <table class="cmp-t">
+        <tr>
+          <th><span class="lang zh">关注点</span><span class="lang en">Concern</span></th>
+          <th><span class="lang zh">每个工具直连</span><span class="lang en">Direct, per tool</span></th>
+          <th><span class="lang zh">重量级网关</span><span class="lang en">Heavy gateways</span></th>
+          <th class="hl">FreeLLM Hub</th>
+        </tr>
+        <tr>
+          <td><span class="lang zh">配置成本</span><span class="lang en">Setup cost</span></td>
+          <td><span class="no">每处都配一遍</span> / <span class="no">repeat everywhere</span></td>
+          <td><span class="mid">Postgres/Redis/多实例</span> / <span class="mid">Postgres/Redis/multi-node</span></td>
+          <td class="hl yes"><span class="lang zh">一个 URL + 一把 Key</span><span class="lang en">One URL + one key</span></td>
+        </tr>
+        <tr>
+          <td><span class="lang zh">已有 Key 复用</span><span class="lang en">Reuse existing keys</span></td>
+          <td class="yes"><span class="lang zh">可以</span><span class="lang en">Yes</span></td>
+          <td class="mid"><span class="lang zh">通常要充值到平台</span><span class="lang en">Usually prepaid credits</span></td>
+          <td class="hl yes"><span class="lang zh">原样收进来</span><span class="lang en">Bring your own</span></td>
+        </tr>
+        <tr>
+          <td><span class="lang zh">故障转移 / 冷却</span><span class="lang en">Failover / cooldowns</span></td>
+          <td class="no">✗</td>
+          <td class="yes">✓</td>
+          <td class="hl yes">✓ <span class="lang zh">含自动回炉与探活</span><span class="lang en">+ self-healing</span></td>
+        </tr>
+        <tr>
+          <td><span class="lang zh">告警 / 一键回滚部署</span><span class="lang en">Alerts / rollback deploys</span></td>
+          <td class="no">✗</td>
+          <td class="mid"><span class="lang zh">看具体项目</span><span class="lang en">Depends</span></td>
+          <td class="hl yes">✓ <span class="lang zh">Webhook + 自动回滚</span><span class="lang en">Webhook + auto-rollback</span></td>
+        </tr>
+        <tr>
+          <td><span class="lang zh">部署门槛</span><span class="lang en">Deployment</span></td>
+          <td class="yes">—</td>
+          <td class="mid"><span class="lang zh">多组件</span><span class="lang en">Multiple services</span></td>
+          <td class="hl yes"><span class="lang zh">单容器 + SQLite</span><span class="lang en">One container + SQLite</span></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ docs ═══ -->
+<section id="docs" style="background:rgba(255,255,255,.012);border-top:1px solid var(--line)">
+  <div class="wrap">
+    <div class="rv">
+      <div class="kicker">Documentation</div>
+      <h2><span class="lang zh">文档齐全</span><span class="lang en">Fully documented</span></h2>
+    </div>
+    <div class="doc-grid">
+      <a class="doc rv" href="../../README.md"><div class="n">📖 README <span class="arr">→</span></div><p><span class="lang zh">项目总览 / 双语快速上手</span><span class="lang en">Overview / bilingual quick start</span></p></a>
+      <a class="doc rv" href="../../INSTALL.md"><div class="n">🧰 INSTALL <span class="arr">→</span></div><p><span class="lang zh">安装与首次配置</span><span class="lang en">Install &amp; first-time setup</span></p></a>
+      <a class="doc rv" href="../../DEPLOY.md"><div class="n">🚀 DEPLOY <span class="arr">→</span></div><p><span class="lang zh">部署 / 升级 / 备份 / 回滚</span><span class="lang en">Deploy / upgrade / backup / rollback</span></p></a>
+      <a class="doc rv" href="../RESTORE.md"><div class="n">⛑️ RESTORE <span class="arr">→</span></div><p><span class="lang zh">灾难恢复手册（已实机演练）</span><span class="lang en">Disaster recovery (battle-tested)</span></p></a>
+      <a class="doc rv" href="../../ARCHITECTURE.md"><div class="n">🏗️ ARCHITECTURE <span class="arr">→</span></div><p><span class="lang zh">当前架构与模块</span><span class="lang en">Current architecture &amp; modules</span></p></a>
+      <a class="doc rv" href="../../CHANGELOG.md"><div class="n">📜 CHANGELOG <span class="arr">→</span></div><p><span class="lang zh">版本与迭代记录</span><span class="lang en">Release &amp; iteration history</span></p></a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ roadmap ═══ -->
+<section>
+  <div class="wrap">
+    <div class="rv">
+      <div class="kicker">Roadmap</div>
+      <h2><span class="lang zh">路线图</span><span class="lang en">Roadmap</span></h2>
+    </div>
+    <div class="road">
+      <div class="rcard cur rv">
+        <span class="rtag done">✅ v2.0.0 <span class="lang zh">当前</span><span class="lang en">current</span></span>
+        <h4><span class="lang zh">多 Provider 网关全集</span><span class="lang en">Full multi-provider gateway</span></h4>
+        <p><span class="lang zh">路由、缓存、护栏、备份、通知、一键部署与回滚。</span><span class="lang en">Routing, cache, guardrails, backups, alerts, one-click deploys with rollback.</span></p>
+      </div>
+      <div class="rcard rv">
+        <span class="rtag wip">🚧 <span class="lang zh">下一步</span><span class="lang en">Next</span></span>
+        <h4>OpenAPI · Prometheus</h4>
+        <p><span class="lang zh">开放文档自动生成、指标接入监控体系。</span><span class="lang en">Auto-generated API docs and Prometheus metrics.</span></p>
+      </div>
+      <div class="rcard rv">
+        <span class="rtag next">💭 <span class="lang zh">远期</span><span class="lang en">Later</span></span>
+        <h4><span class="lang zh">多用户 / 团队 / 计费</span><span class="lang en">Teams / SSO / Billing</span></h4>
+        <p><span class="lang zh">多用户、团队空间、SSO 与配额计费。</span><span class="lang en">Multi-user, team spaces, SSO and usage billing.</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="about">
+        <div class="brand" style="margin-bottom:12px">
+          <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="8" fill="#070b18" stroke="rgba(255,255,255,.12)"/><path d="M9 17.5 14 22l9-11" stroke="url(#lg)" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          FreeLLM Hub
+        </div>
+        <span class="lang zh">自托管的统一 LLM API 网关。不提供任何模型服务——它只管理你自己手里的 Key，让所有工具共用一个入口。</span>
+        <span class="lang en">A self-hosted unified LLM API gateway. It ships no models of its own — it simply manages the keys you already own behind one endpoint.</span>
+      </div>
+      <div class="links">
+        <div>
+          <h5><span class="lang zh">产品</span><span class="lang en">Product</span></h5>
+          <ul>
+            <li><a href="#features"><span class="lang zh">功能</span><span class="lang en">Features</span></a></li>
+            <li><a href="#architecture"><span class="lang zh">架构</span><span class="lang en">Architecture</span></a></li>
+            <li><a href="#quickstart"><span class="lang zh">快速开始</span><span class="lang en">Quick start</span></a></li>
+          </ul>
+        </div>
+        <div>
+          <h5><span class="lang zh">文档</span><span class="lang en">Docs</span></h5>
+          <ul>
+            <li><a href="../../README.md">README</a></li>
+            <li><a href="../../DEPLOY.md">DEPLOY</a></li>
+            <li><a href="../RESTORE.md">RESTORE</a></li>
+            <li><a href="../../CHANGELOG.md">CHANGELOG</a></li>
+          </ul>
+        </div>
+        <div>
+          <h5><span class="lang zh">关于</span><span class="lang en">About</span></h5>
+          <ul>
+            <li><a href="https://github.com/zhibushi" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://www.zhibushi.com" target="_blank" rel="noopener">zhibushi.com</a></li>
+            <li><a href="../../LICENSE">MIT License</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="copyline">
+      <span>© 2026 zhibushi · MIT · <span class="lang zh">本站仅介绍开源软件，不提供模型或 API 服务。</span><span class="lang en">This page introduces open-source software; no model or API service is offered here.</span></span>
+      <span class="lang zh">v2.0.0 · 208 tests green</span>
+      <span class="lang en">v2.0.0 · 208 tests green</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  /* ── language toggle ── */
+  var html=document.documentElement;
+  var saved=null; try{saved=localStorage.getItem('fh-lang')}catch(e){}
+  var lang=saved||(navigator.language&&navigator.language.toLowerCase().indexOf('zh')!==0?'en':'zh');
+  function setLang(l){
+    html.setAttribute('data-lang',l); html.setAttribute('lang',l==='zh'?'zh-CN':'en');
+    try{localStorage.setItem('fh-lang',l)}catch(e){}
+    document.title=l==='zh'
+      ?'FreeLLM Hub — 自托管统一 LLM API 网关'
+      :'FreeLLM Hub — Self-hosted Unified LLM Gateway';
+  }
+  setLang(lang);
+  document.getElementById('langBtn').addEventListener('click',function(){
+    setLang(html.getAttribute('data-lang')==='zh'?'en':'zh');
+  });
+
+  /* ── quickstart tabs ── */
+  document.querySelectorAll('.tab').forEach(function(t){
+    t.addEventListener('click',function(){
+      document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});
+      document.querySelectorAll('.pane').forEach(function(x){x.classList.remove('on')});
+      t.classList.add('on');
+      var p=document.getElementById(t.getAttribute('data-pane')); if(p)p.classList.add('on');
+    });
+  });
+
+  /* ── copy buttons (strip ANSI-like spans) ── */
+  document.querySelectorAll('.copy').forEach(function(b){
+    b.addEventListener('click',function(){
+      var el=document.getElementById(b.getAttribute('data-copy'));
+      if(!el)return;
+      var txt=el.innerText.replace(/^[$>]\s?/gm,'');
+      var done=function(){var o=b.textContent;b.textContent='✓ 已复制';setTimeout(function(){b.textContent=o},1500)};
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done,function(){})}
+    });
+  });
+
+  /* ── reveal on scroll ── */
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}});
+  },{threshold:.12});
+  document.querySelectorAll('.rv').forEach(function(el,i){el.style.transitionDelay=(i%3*60)+'ms';io.observe(el)});
+})();
+</script>
+</body>
+</html>
