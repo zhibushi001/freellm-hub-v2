@@ -44,6 +44,9 @@ BACKUP_TGZ=".deploy-backups/dist-${TS}.tgz"
 docker exec "$CONTAINER" tar -C /app/dist -czf - . > "$BACKUP_TGZ"
 log "   $BACKUP_TGZ ($(du -h "$BACKUP_TGZ" | cut -f1))"
 
+# 清理旧回滚点: 只保留最近 2 个。dist 可由 git + npm run build 完整重建, 不必无限堆积
+ls -1t .deploy-backups/dist-*.tgz 2>/dev/null | tail -n +3 | xargs -r rm -f
+
 log "6/7 推送新 dist (先清前端缓存目录, 防旧 hash 残留)"
 docker exec "$CONTAINER" rm -rf /app/dist/public/admin
 tar -C dist -cf - . | docker exec -i "$CONTAINER" tar -C /app/dist -xf -

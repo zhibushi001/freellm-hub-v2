@@ -11,6 +11,25 @@
 
 ---
 
+## 📚 文档导航
+
+| 文档 | 内容 |
+|---|---|
+| [INSTALL.md](./INSTALL.md) | 安装与快速上手 |
+| [DEPLOY.md](./DEPLOY.md) | Docker 部署 / 备份 / 升级 / 回滚 |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | **当前**架构与模块说明 (以此为准) |
+| [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) | 后台功能使用指南 |
+| [docs/RESTORE.md](./docs/RESTORE.md) | 灾难恢复手册 (已实际演练) |
+| [CHANGELOG.md](./CHANGELOG.md) | 版本与迭代记录 (含开发过程) |
+| [SECURITY.md](./SECURITY.md) | 安全说明与已知限制 |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 贡献指南 |
+| [docs/DESIGN.md](./docs/DESIGN.md) | 一期总体设计 (历史存档) |
+| [docs/PHASE2_DESIGN.md](./docs/PHASE2_DESIGN.md) | 二期设计 (历史存档) |
+
+> 三份设计文档是不同阶段的历史存档, 相互补充; 描述当前实现以 [ARCHITECTURE.md](./ARCHITECTURE.md) 为准。
+
+---
+
 ## 📸 截图预览
 
 <details>
