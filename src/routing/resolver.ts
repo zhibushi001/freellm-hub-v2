@@ -9,6 +9,7 @@
 import type { KeyWithChannel } from '../db/repos/keys.js';
 import { getModelRouteByName } from '../db/repos/modelRoutes.js';
 import { getChannel } from '../db/repos/channels.js';
+import { getProviderByName } from '../db/repos/providers.js';
 
 export type ResolveResult =
   | { key: KeyWithChannel; upstreamModel: string }
@@ -21,6 +22,8 @@ export type ResolveResult =
  *   'minimax/M3'           → 在 minimax provider 下选第一个可用 key, upstream=M3
  *   'minimax/A1/M3'        → 强制 provider=minimax, key 标签 A1, upstream=M3 (Phase 2)
  *   'M3'                   → 找第一个可用 key, upstream=M3
+ *   'stealth/space-bunny-alpha' → 前缀不是真实提供商 (OpenRouter org/model 形式)
+ *                                → 按完整字面量在通道模型列表中精确匹配
  *   其他                    → Phase 1 不支持
  *
  * Phase 5.E 增强: 如果有 model_routes 配置, 优先按 route 选 channel,
@@ -47,6 +50,11 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
   if (!requestModel) return { error: 'model 字段必填' };
 
   const parts = requestModel.split('/').filter(Boolean);
+
+  // F2: 斜杠前缀只有在真实存在同名提供商时才按"指定提供商"解析。
+  // OpenRouter 等上游的模型 ID 是 org/model 形式 — 前缀是组织名不是提供商,
+  // 之前会被误判成 pin → 报 "Provider 'stealth' 下没有可用 Key"。
+  const providerPinned = parts.length >= 2 && getProviderByName(parts[0]) !== null;
 
   // 0. Phase 5.E: 显式 model_routes 优先
   // 只对纯 model 名 (1 段) 触发, 避免与 provider/model 形式冲突
@@ -75,7 +83,7 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
   }
 
   // 1. 三段式: provider/key/model (Phase 2 完整支持, Phase 1 部分支持)
-  if (parts.length === 3) {
+  if (parts.length === 3 && providerPinned) {
     const [providerName, keyRef, upstream] = parts;
     const candidates = allKeys.filter(
       k => k.provider_name === providerName && k.enabled === 1 && (k.channel_enabled ?? 1) === 1 && k.status !== 'failed' && isKeyEligibleForModel(k, upstream),
@@ -94,7 +102,7 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
   }
 
   // 2. 两段式: provider/model
-  if (parts.length === 2) {
+  if (parts.length === 2 && providerPinned) {
     const [providerName, upstream] = parts;
     const candidates = allKeys.filter(
       k => k.provider_name === providerName && k.enabled === 1 && (k.channel_enabled ?? 1) === 1 && k.status !== 'failed' && isKeyEligibleForModel(k, upstream),
@@ -106,9 +114,19 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
     return { key: candidates[0], upstreamModel: upstream };
   }
 
-  // 3. 纯 model 名
-  const upstream = parts[0];
-  const candidates = allKeys.filter(k => k.enabled === 1 && (k.channel_enabled ?? 1) === 1 && k.status !== 'failed' && isKeyEligibleForModel(k, upstream));
+  // 3. 字面模型名 — 走到这里说明斜杠前缀不是真实提供商 (F2), 按完整字面量匹配。
+  //    多段 ID 只允许"通道模型列表显式包含它"或"列表为空=通配"的通道命中, 防止宽松乱选。
+  const upstream = parts.length === 1 ? parts[0] : requestModel;
+  const literalSlash = parts.length > 1;
+  const candidates = allKeys.filter(k => {
+    if (k.enabled !== 1 || (k.channel_enabled ?? 1) !== 1 || k.status === 'failed') return false;
+    if (!isKeyEligibleForModel(k, upstream)) return false;
+    if (!literalSlash) return true;
+    const ch = getChannel(k.channel_id);
+    if (!ch) return false;
+    const models = (ch.models ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    return models.length === 0 || models.includes(upstream);
+  });
   if (candidates.length === 0) {
     // 区分: 模型名在系统中是否存在 vs 仅是当前没可用 Key
     // 注: channels.models 是 CSV 字符串 (逗号分隔), 不是 JSON

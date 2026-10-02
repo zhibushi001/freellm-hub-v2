@@ -84,14 +84,16 @@ export function selectCandidatePool(upstreamModel: string, eligibilityModel?: st
   const eligibleRows = rows.filter(r => isKeyEligibleForModel(r, eligModel ?? upstreamModel));
 
   if (eligibleRows.length === 0) {
-    // 没有精确候选 (没 discovered / 全被 allowed_models 排除), 退化为 "任何 enabled key"
-    return rankPool(listKeys().filter(k => k.enabled === 1 && (k.channel_enabled ?? 1) === 1 && (eligModel == null || isKeyEligibleForModel(k, eligModel))), upstreamModel);
+    // 没有精确候选 (没 discovered / 全被 allowed_models 排除) → 收紧为"模型列表匹配的通道"兜底
+    // (F1: 不再 any-key, 否则会把模型砸到完全不相干的通道)
+    return selectFallbackPool(upstreamModel);
   }
   // 有精确候选, 但如果全部 cooldown/failed (rankPool 会标 available=false),
   // 也退化到 "任何 enabled key" - 让 mock 等 fallback 接管
   const exactPool = rankPool(eligibleRows, upstreamModel);
   if (exactPool.available.length === 0) {
-    return rankPool(listKeys().filter(k => k.enabled === 1 && (k.channel_enabled ?? 1) === 1 && (eligModel == null || isKeyEligibleForModel(k, eligModel))), upstreamModel);
+    // 精确候选全冷却/不可用 → 同样只在"配置了该模型的通道"内兜底
+    return selectFallbackPool(upstreamModel);
   }
   return exactPool;
 }
@@ -99,6 +101,26 @@ export function selectCandidatePool(upstreamModel: string, eligibilityModel?: st
 /**
  * 把 keys 列表转成 PoolResult
  */
+/**
+ * F1 兜底候选池 — 不再退化为"任意 enabled key"。
+ * 旧的 any-key 退化会把模型砸到完全不相干的通道 (上游报 Unsupported model / not a valid model ID)。
+ * 现在只取: 通道 models 列表显式包含该模型, 或列表为空 (= 通配, "支持所有模型") 的通道的 Key。
+ * routeChannelIds 给定时进一步限定在模型路由指定的通道内 (failover 不得越界)。
+ */
+export function selectFallbackPool(upstreamModel: string, routeChannelIds?: ReadonlySet<number> | null): PoolResult {
+  const channelsById = new Map(listChannels().map(c => [c.id, c]));
+  const keys = listKeys().filter(k => {
+    if (k.enabled !== 1 || (k.channel_enabled ?? 1) !== 1) return false;
+    if (routeChannelIds && !routeChannelIds.has(k.channel_id)) return false;
+    const ch = channelsById.get(k.channel_id);
+    if (!ch) return false;
+    const models = (ch.models ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    if (models.length > 0 && !models.includes(upstreamModel)) return false;
+    return isKeyEligibleForModel(k, upstreamModel);
+  });
+  return rankPool(keys, upstreamModel);
+}
+
 function rankPool(keys: any[], upstreamModel: string | null): PoolResult {
   const strategy = getRoutingStrategy();
   const inputs: ScoringInput[] = keys.map((k, idx) => {

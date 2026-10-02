@@ -69,12 +69,40 @@ describe('resolver', () => {
     assert.equal(r.key.provider_name, 'minimax');
   });
 
-  it('不存在的 provider → 错误', async () => {
+  it('非提供商前缀的斜杠 → 按完整字面量匹配 (OpenRouter org/model 形式, F2)', async () => {
     const { listKeys } = await import('../../src/db/repos/keys.js');
     const { resolveModel } = await import('../../src/routing/resolver.js');
+    // 前缀 nosuch 不是真实提供商 → 不再报 "Provider 下没有可用 Key",
+    // 而是把 'nosuch/M3' 当完整字面量; 通道 models 为空 = 通配 → 可命中
     const r = resolveModel('nosuch/M3', listKeys());
+    assert.ok('key' in r, `expected key, got ${JSON.stringify(r)}`);
+    assert.equal(r.upstreamModel, 'nosuch/M3');
+  });
+
+  it('字面量斜杠 ID 只命中"模型列表包含它"的通道 (F2)', async () => {
+    const { listKeys } = await import('../../src/db/repos/keys.js');
+    const { resolveModel } = await import('../../src/routing/resolver.js');
+    const channels = await import('../../src/db/repos/channels.js');
+    const chs = channels.listChannels();
+    // c1 (minimax) 配别的模型, c2 (openrouter) 配 bunny
+    db.prepare('UPDATE channels SET models = ? WHERE id = ?').run('foo-model', chs[0].id);
+    db.prepare('UPDATE channels SET models = ? WHERE id = ?').run('stealth/space-bunny-alpha', chs[1].id);
+    const r = resolveModel('stealth/space-bunny-alpha', listKeys());
+    assert.ok('key' in r, `expected key, got ${JSON.stringify(r)}`);
+    assert.equal(r.upstreamModel, 'stealth/space-bunny-alpha');
+    assert.equal(r.key.provider_name, 'openrouter');
+  });
+
+  it('字面量斜杠 ID 没有任何通道配置 → model_not_found (F2)', async () => {
+    const { listKeys } = await import('../../src/db/repos/keys.js');
+    const { resolveModel } = await import('../../src/routing/resolver.js');
+    const channels = await import('../../src/db/repos/channels.js');
+    const chs = channels.listChannels();
+    for (const c of chs) db.prepare('UPDATE channels SET models = ? WHERE id = ?').run('other-model', c.id);
+    const r = resolveModel('ghost/xyz', listKeys());
     assert.ok('error' in r);
-    assert.match(r.error, /没有可用 Key/);
+    assert.match(r.error, /未配置/);
+    assert.equal((r as any).errorKind, 'model_not_found');
   });
 
   it('没有 key → 错误', async () => {

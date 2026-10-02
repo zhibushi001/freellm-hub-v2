@@ -26,7 +26,8 @@ import {recordUsage} from '../services/usageService.js'
 import {parseJsonSafe} from '../util/json.js'
 import {inflightStart, inflightEnd, inflightWeightPenalty} from '../services/inflightTracker.js'
 import {recordQuotaHeaders} from '../services/quotaTracker.js'
-import {selectCandidatePool, selectKeyPool, applyMultiKeyMode, type PoolResult} from './selector.js'
+import {selectCandidatePool, selectKeyPool, selectFallbackPool, applyMultiKeyMode, type PoolResult} from './selector.js'
+import {getModelRouteByName} from '../db/repos/modelRoutes.js'
 import {resolveModel} from './resolver.js'
 import {listKeys} from '../db/repos/keys.js'
 import {setCooldown} from '../db/repos/cooldowns.js'
@@ -183,6 +184,23 @@ export interface SelectCandidateOpts {
  * 选 (key, upstreamModel) 对
  * 返回 null = 该 model 整体不可用 (no candidate)
  */
+/**
+ * F1: 该模型若配了 enabled 的 model_routes, 返回其通道集合 (failover 不得越界), 否则 null。
+ * 模型路由是用户显式指定的通道顺序 — 精确池/兜底池都必须尊重它。
+ */
+function getRouteChannelScope(requestModel: string): Set<number> | null {
+  const route = getModelRouteByName(requestModel);
+  if (!route || route.enabled !== 1) return null;
+  try {
+    const arr = JSON.parse(route.channel_ids);
+    if (Array.isArray(arr)) {
+      const ids = arr.filter((n: any) => Number.isFinite(n)).map(Number);
+      if (ids.length > 0) return new Set(ids);
+    }
+  } catch { /* 解析失败 = 走默认作用域 */ }
+  return null;
+}
+
 export function selectFirstCandidate(
   requestModel: string,
   allKeys: any[],
@@ -208,20 +226,31 @@ export function selectFirstCandidate(
 
   // 两段或纯 model 名 - 用 candidate 池
   if (state.models.has(r.upstreamModel)) return { error: '该 Model 已被本请求跳过' };
+  // F1: 模型路由作用域 — 配了 model_routes 的模型, failover 不得越出路由指定的通道
+  const routeScope = getRouteChannelScope(requestModel);
   // Phase 2 候选池 (精确 discovered)
   let pool = selectCandidatePool(r.upstreamModel);
   // 过滤已被 skip 的
   pool.available = pool.available.filter(p =>
     !state.keys.has(p.key.id) && !state.platforms.has(p.key.provider_id)
   );
-  // 如果精确候选全 skip 或 unavailable, 退化到 "any enabled key" (mock 等 fallback 接管)
+  if (routeScope) {
+    pool.available = pool.available.filter(p => routeScope.has(p.key.channel_id));
+  }
+  // 如果精确候选全 skip 或 unavailable, 兜底到"配置了该模型的通道" (F1: 不再 any-key 跨通道乱砸)
   if (pool.available.length === 0) {
-    pool = selectCandidatePool('__any__', r.upstreamModel);
+    pool = selectFallbackPool(r.upstreamModel, routeScope);
     pool.available = pool.available.filter(p =>
       !state.keys.has(p.key.id) && !state.platforms.has(p.key.provider_id)
     );
   }
   if (pool.available.length === 0) {
+    if (routeScope) {
+      return { error: `模型路由配置的通道 ${[...routeScope].join(',')} 无可用 Key (均被跳过或未配置该模型)`, errorKind: 'no_keys' };
+    }
+    if (pool.unavailable.length === 0) {
+      return { error: `没有通道配置模型 '${r.upstreamModel}'。请检查模型列表或在「渠道」中添加该模型`, errorKind: 'model_not_found' };
+    }
     return { error: pool.unavailable[0]?.reason ?? '没有可用的 candidate' };
   }
   // Phase 4.C: 按 in-flight penalty 降序排序 — 空闲 key (权重 1.0) 优先, 在途多的 (1/(1+n)) 排后
