@@ -1659,6 +1659,13 @@ function CreateChannelModal({
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
+  // 自动获取后的模型挑选弹窗: 获取 → 搜索 → 勾选 → 只应用勾选项
+  const [modelPicker, setModelPicker] = useState<{
+    candidates: string[];
+    existing: Set<string>;
+    selected: Set<string>;
+  } | null>(null);
+  const [pickerQuery, setPickerQuery] = useState('');
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerTab, setProviderTab] = useState<'paid' | 'free' | 'custom'>('paid');
   const [selectedDbProvider, setSelectedDbProvider] = useState<Provider | null>(null);
@@ -1808,6 +1815,47 @@ function CreateChannelModal({
     }
   };
 
+  const closeModelPicker = () => setModelPicker(null);
+
+  const togglePickerModel = (m: string) => {
+    setModelPicker((p) => {
+      if (!p) return p;
+      const next = new Set(p.selected);
+      if (next.has(m)) next.delete(m); else next.add(m);
+      return { ...p, selected: next };
+    });
+  };
+
+  const pickerFiltered = (() => {
+    if (!modelPicker) return [];
+    const q = pickerQuery.trim().toLowerCase();
+    return q ? modelPicker.candidates.filter((m) => m.toLowerCase().includes(q)) : modelPicker.candidates;
+  })();
+
+  const pickerSelectFiltered = () =>
+    setModelPicker((p) => (p ? { ...p, selected: new Set([...p.selected, ...pickerFiltered]) } : p));
+  const pickerClear = () => setModelPicker((p) => (p ? { ...p, selected: new Set() } : p));
+  const pickerInvertFiltered = () =>
+    setModelPicker((p) => {
+      if (!p) return p;
+      const next = new Set(p.selected);
+      for (const m of pickerFiltered) {
+        if (next.has(m)) next.delete(m); else next.add(m);
+      }
+      return { ...p, selected: next };
+    });
+
+  const confirmModelPicker = () => {
+    if (!modelPicker) return;
+    const chosen = modelPicker.candidates.filter((m) => modelPicker.selected.has(m));
+    setForm((prev) => ({
+      ...prev,
+      models: chosen.join(','),
+      test_model: prev.test_model && chosen.includes(prev.test_model) ? prev.test_model : (chosen[0] || prev.test_model || ''),
+    }));
+    setModelPicker(null);
+  };
+
   const handleFetchModels = async () => {
     if (!form.base_url) {
       alert('请先填写 Base URL');
@@ -1833,13 +1881,20 @@ function CreateChannelModal({
         }),
       });
       const data = await res.json();
-      if (data.ok && data.models) {
-        // 合并现有模型和新获取的模型
-        const existingModels = form.models.split(',').map(m => m.trim()).filter(Boolean);
-        const newModels = [...new Set([...existingModels, ...data.models])];
-        const firstModel = newModels[0] || '';
-        setForm({ ...form, models: newModels.join(','), test_model: form.test_model || firstModel });
-        alert(`成功获取 ${data.models.length} 个模型`);
+      if (data.ok && Array.isArray(data.models)) {
+        const fetched: string[] = (data.models as unknown[]).filter((m): m is string => typeof m === 'string');
+        if (fetched.length === 0) {
+          alert('上游未返回任何模型');
+        } else {
+          // 获取 → 弹出挑选列表 (可搜索、勾选), 只应用勾选项; 已在框里的默认勾上
+          const existingModels = form.models.split(',').map(m => m.trim()).filter(Boolean);
+          setPickerQuery('');
+          setModelPicker({
+            candidates: Array.from(new Set([...existingModels, ...fetched])).sort(),
+            existing: new Set(existingModels),
+            selected: new Set(existingModels),
+          });
+        }
       } else {
         alert(`获取模型失败: ${data.error || '未知错误'}`);
       }
@@ -1867,6 +1922,7 @@ function CreateChannelModal({
   };
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4 overflow-x-hidden">
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl animate-scale-in border border-slate-200/50 dark:border-slate-700/50 max-h-[90vh] overflow-hidden flex flex-col">
         <div className="p-4 sm:p-6 border-b border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between">
@@ -2395,6 +2451,111 @@ function CreateChannelModal({
         </div>
       </div>
     </div>
+
+    {modelPicker && (
+      <div
+        className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        onClick={closeModelPicker}
+      >
+        <div
+          className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200/50 dark:border-slate-700/50 max-h-[85vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-4 sm:p-5 border-b border-slate-200/50 dark:border-slate-700/50 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-base font-semibold text-slate-900 dark:text-white">选择要添加的模型</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                获取到 {modelPicker.candidates.length} 个 · 已勾选 {modelPicker.selected.size} 个
+                {pickerQuery.trim() && ` · 匹配 ${pickerFiltered.length} 个`}
+              </p>
+            </div>
+            <button type="button" onClick={closeModelPicker} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 shrink-0">
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="p-3 sm:p-4 border-b border-slate-200/50 dark:border-slate-700/50 space-y-2">
+            <input
+              autoFocus
+              type="text"
+              value={pickerQuery}
+              onChange={(e) => setPickerQuery(e.target.value)}
+              placeholder="搜索模型名…"
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white outline-none input-focus"
+            />
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <button
+                type="button"
+                onClick={pickerSelectFiltered}
+                className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 font-medium"
+              >
+                全选{pickerQuery.trim() ? '筛选项' : ''}
+              </button>
+              <button
+                type="button"
+                onClick={pickerInvertFiltered}
+                className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 font-medium"
+              >
+                反选{pickerQuery.trim() ? '筛选项' : ''}
+              </button>
+              <button
+                type="button"
+                onClick={pickerClear}
+                className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 font-medium"
+              >
+                清空
+              </button>
+              <span className="ml-auto text-slate-400">{pickerFiltered.length} / {modelPicker.candidates.length}</span>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto min-h-[140px] max-h-[46vh] divide-y divide-slate-100 dark:divide-slate-700/50">
+            {pickerFiltered.length === 0 ? (
+              <div className="p-8 text-center text-sm text-slate-400">没有匹配的模型</div>
+            ) : (
+              pickerFiltered.map((m) => (
+                <label
+                  key={m}
+                  className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/40 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={modelPicker.selected.has(m)}
+                    onChange={() => togglePickerModel(m)}
+                    className="rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500/40 shrink-0"
+                  />
+                  <span className="text-sm font-mono text-slate-700 dark:text-slate-300 truncate">{m}</span>
+                  {modelPicker.existing.has(m) && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 shrink-0">
+                      已有
+                    </span>
+                  )}
+                </label>
+              ))
+            )}
+          </div>
+
+          <div className="p-4 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeModelPicker}
+              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/40"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={confirmModelPicker}
+              disabled={modelPicker.selected.size === 0}
+              className="btn-primary px-4 py-2 text-sm disabled:opacity-50"
+            >
+              添加所选 ({modelPicker.selected.size})
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 }
 
