@@ -5,7 +5,31 @@
 
 ## [开发中 / 迭代记录] - 2026-10-01 ~ 2026-10-03
 
-> 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘。
+> 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6。
+
+### 路由修复 第二轮: R1-R6 (2026-10-03, F1/F2 后续)
+
+> 上一轮 F1+F2 收紧了 failover 与斜杠模型 ID, 但线上仍间歇性"大模型连不上"。
+> 本轮从候选池构造、Key 选择、冷却作用域、错误分类四处补齐。
+
+- **R1 (resolver.ts / selector.ts / discoveredModels.ts)**: 聚合平台 (商汤等) 实际能跑几十个模型,
+  人工「模型列表」往往只填了三五个 → 字面量路由 (OpenRouter `org/model` 形式) 之前只认人工列表,
+  大量真实可用模型被误判 `model_not_found`。新增 `getDiscoveredModelKeys()`, 把
+  `discovered_models` 的实际发现记录与人工列表**等价**对待: 命中任一证据即可路由
+- **R2 (failover.ts)**: 三段式 pin (`provider/key/model`) 之前只是"记下"指定 Key, 实际仍从同通道
+  评分选出另一把 → "指定付费 / 独立限流 Key"**静默失效**。现在只认 pin 的那把;
+  该 Key 若已被禁用/失败/不在该通道, 给出明确报错而不是悄悄换人
+- **R3 (cooldowns.ts / selector.ts)**: 冷却作用域拆分 —— key 级 (auth / 额度耗尽) 对该 Key
+  所有模型生效, model 级 (A 模型被限流) **只影响同模型**, 不再连累 B 模型。
+  新增 `getCooldownScopeForKey()`, 选 Key 与 multi_key_mode 择优统一改用它
+- **R4/R6 (failover.ts `classifyError`)**: 错误分类两处误判, 都会**误封健康 Key**——
+  - OpenRouter 的 `X is not a valid model ID` 未被识别 → 当客户端错误直接失败, 不换渠道重试
+  - `insufficient` 匹配过宽: `insufficient permissions` 这类普通 400 被判成额度耗尽 → **24h 永久封禁**。
+    收窄为 `insufficient balance`, 并把 `rate limit` 独立归到 `rate_limit` (可恢复阶梯冷却, 非永久封)
+- **测试**: `test/unit/fallbackPool.test.ts` 补 5 例回归防线 (R1 x2 / R2 / R3 / R4+R6);
+  全量单测 141 通过, `tsc --noEmit` 干净
+- **现场症状对照**: 部署前线上日志可见 `Key 24h cooldown: quota exhausted` 与 `Key 5min cooldown: 401`
+  成片出现 —— 即 R6 误封与 auth 反复触发的直接证据
 
 ### 渠道模型挑选: 三处入口补全 (2026-10-03)
 

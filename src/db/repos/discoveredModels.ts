@@ -22,6 +22,18 @@ export function getDiscoveredModelsForKey(keyId: number): DiscoveredModel[] {
 }
 
 
+/**
+ * 该上游模型被哪些 Key 实际发现过 — discovered 是比人工模型列表更强的证据
+ * (聚合平台如商汤能跑几十个模型, 手工列表往往只填了三五个)。
+ * 字面量路由 (OpenRouter 的 org/model 形式) 必须同时认这两种证据。
+ */
+export function getDiscoveredModelKeys(upstreamId: string): number[] {
+  const rows = getDb()
+    .prepare('SELECT DISTINCT key_id FROM discovered_models WHERE upstream_id = ?')
+    .all(upstreamId) as Array<{ key_id: number }>;
+  return rows.map(r => Number(r.key_id));
+}
+
 export function upsertDiscoveredModel(keyId: number, upstreamId: string): void {
   getDb()
     .prepare(

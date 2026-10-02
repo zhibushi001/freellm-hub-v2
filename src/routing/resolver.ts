@@ -9,6 +9,7 @@
 import type { KeyWithChannel } from '../db/repos/keys.js';
 import { getModelRouteByName } from '../db/repos/modelRoutes.js';
 import { getChannel } from '../db/repos/channels.js';
+import { getDiscoveredModelKeys } from '../db/repos/discoveredModels.js';
 import { getProviderByName } from '../db/repos/providers.js';
 
 export type ResolveResult =
@@ -124,10 +125,15 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
   //    多段 ID 只允许"通道模型列表显式包含它"或"列表为空=通配"的通道命中, 防止宽松乱选。
   const upstream = parts.length === 1 ? parts[0] : requestModel;
   const literalSlash = parts.length > 1;
+  const discoveredKeyIds = literalSlash ? new Set(getDiscoveredModelKeys(upstream)) : new Set<number>();
   const candidates = allKeys.filter(k => {
     if (k.enabled !== 1 || (k.channel_enabled ?? 1) !== 1 || k.status === 'failed') return false;
     if (!isKeyEligibleForModel(k, upstream)) return false;
     if (!literalSlash) return true;
+    // 两种证据都算"这个通道能跑这个模型":
+    //   1) 通道模型列表显式包含 (或列表为空 = 通配)
+    //   2) 该 Key 在 discovered_models 里实际发现过 (聚合平台的模型常常没进人工列表)
+    if (discoveredKeyIds.has(k.id)) return true;
     const ch = getChannel(k.channel_id);
     if (!ch) return false;
     const models = (ch.models ?? '').split(',').map(s => s.trim()).filter(Boolean);

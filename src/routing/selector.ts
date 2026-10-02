@@ -10,10 +10,11 @@
  */
 import {getDb} from '../db/connection.js'
 import {listKeys} from '../db/repos/keys.js'
-import {getAllActiveCooldownsForKey, isKeyOnCooldown} from '../db/repos/cooldowns.js'
+import {getCooldownScopeForKey, isKeyOnCooldown} from '../db/repos/cooldowns.js'
 import {getAllSettings} from '../db/repos/settings.js'
 import {listChannels} from '../db/repos/channels.js'
 import {isKeyEligibleForModel} from './resolver.js'
+import {getDiscoveredModelKeys} from '../db/repos/discoveredModels.js'
 import {getRemainingQuotaRatio} from '../services/quotaTracker.js'
 import {rankCandidates, type ScoringInput, type RoutingStrategy, DEFAULT_STRATEGY} from './scorer.js'
 
@@ -109,9 +110,12 @@ export function selectCandidatePool(upstreamModel: string, eligibilityModel?: st
  */
 export function selectFallbackPool(upstreamModel: string, routeChannelIds?: ReadonlySet<number> | null): PoolResult {
   const channelsById = new Map(listChannels().map(c => [c.id, c]));
+  const discoveredKeyIds = new Set(getDiscoveredModelKeys(upstreamModel));
   const keys = listKeys().filter(k => {
     if (k.enabled !== 1 || (k.channel_enabled ?? 1) !== 1) return false;
     if (routeChannelIds && !routeChannelIds.has(k.channel_id)) return false;
+    // discovered 证据与人工模型列表等价 (聚合平台常常只填了列表里的几个)
+    if (discoveredKeyIds.has(k.id)) return isKeyEligibleForModel(k, upstreamModel);
     const ch = channelsById.get(k.channel_id);
     if (!ch) return false;
     const models = (ch.models ?? '').split(',').map(s => s.trim()).filter(Boolean);
@@ -125,7 +129,7 @@ function rankPool(keys: any[], upstreamModel: string | null): PoolResult {
   const strategy = getRoutingStrategy();
   const inputs: ScoringInput[] = keys.map((k, idx) => {
     const cd = upstreamModel ? isKeyOnCooldown(k.id, upstreamModel) : { onCooldown: false };
-    const cds = getAllActiveCooldownsForKey(k.id);
+    const cds = getCooldownScopeForKey(k.id, upstreamModel).applicable;
     // 仅用户主动禁用才排除 — 失败/冷却/配额耗尽仍留在池中，靠评分降权
     // 这样失败 Key 可以自动恢复
     const isUserDisabled = k.enabled !== 1 || k.status === 'disabled';
@@ -182,6 +186,8 @@ export interface MultiKeyPickOpts {
   hubKeyId?: number | null;
   /** 优先使用的 channel (流式: resolver 已选定的 channel; 不传 = 按评分最高 channel) */
   preferredChannelId?: number;
+  /** 当前上游模型名 — model 级冷却只影响同模型, 不连累其他模型 */
+  upstreamModel?: string | null;
 }
 
 /**
@@ -216,7 +222,7 @@ export function applyMultiKeyMode(
   const mode = listChannels().find(c => c.id === targetChannelId)?.multi_key_mode ?? 'random';
   // 渠道内稳定序 (key id): sticky/polling 的索引必须落在确定序上
   const stableGroup = [...group].sort((a, b) => a.key.id - b.key.id);
-  const healthy = stableGroup.filter(p => getAllActiveCooldownsForKey(p.key.id).length === 0);
+  const healthy = stableGroup.filter(p => getCooldownScopeForKey(p.key.id, opts.upstreamModel ?? null).applicable.length === 0);
   // F14: 目标渠道全部冷却 → 不提升, 交给跨渠道评分序 (×0.2 已经把它们排后)
   if (healthy.length === 0) return available;
   const candidates = healthy;

@@ -111,17 +111,26 @@ export function classifyError(status: number, body: any, headers?: Record<string
   if (status === 404) return { kind: 'provider_error', message: String(msg) };
   // 400/4xx 含 "unknown model" / "model not found" / "model does not exist" → provider_error
   // (e.g. minimax 返 400 "invalid params, unknown model 'X' (2013)")
+  // "not a valid model" / "model_not_found" 等同"模型不存在" (OpenRouter 原话就是
+  // "X is not a valid model ID") → 换渠道/换模型重试, 不能当客户端错误直接失败
   if (status >= 400 && status < 500
       && (msgStr.includes('unknown model') || msgStr.includes('model not found')
-          || msgStr.includes('model does not exist') || msgStr.includes('invalid model'))) {
+          || msgStr.includes('model does not exist') || msgStr.includes('invalid model')
+          || msgStr.includes('not a valid model') || msgStr.includes('model_id')
+          || msgStr.includes('model not supported'))) {
     return { kind: 'provider_error', message: String(msg) };
   }
-  // 400 + 配额/限流关键词 (SenseNova/MiniMax 返 invalid_request_error 但实际是 credit/rate-limit)
-  // → key_quota (skipKey 换下一个 key)
+  // 400 + 明确额度字眼 (余额/额度/欠费) → key_quota (24h 不可恢复封 Key)
+  // 只认确凿的额度语义: "insufficient"/"rate limit" 这类宽泛词会把
+  // "insufficient permissions" 之类普通 400 误判成额度耗尽 → 健康 Key 被永久误封
   if (status === 400 && (msgStr.includes('balance') || msgStr.includes('credit')
-      || msgStr.includes('quota') || msgStr.includes('rate limit')
-      || msgStr.includes('insufficient'))) {
+      || msgStr.includes('quota') || msgStr.includes('insufficient balance'))) {
     return { kind: 'key_quota', message: String(msg) };
+  }
+  // 400 但内容是限流 → rate_limit (可恢复阶梯冷却), 不再当额度耗尽永久封
+  if (status === 400 && (msgStr.includes('rate limit') || msgStr.includes('rate_limit')
+      || msgStr.includes('too many request'))) {
+    return { kind: 'rate_limit', message: String(msg) };
   }
   // 400 + invalid_request_error (e.g. "inference request is invalid")
   // → provider_error (skipPlatform, 试其他 provider/key), 不是 client_error (请求格式错)
@@ -218,10 +227,19 @@ export function selectFirstCandidate(
     if (state.models.has(r.upstreamModel)) return { error: '该 Model 已被本请求跳过' };
     if (state.platforms.has(r.key.provider_id)) return { error: '该 Provider 已被本请求跳过' };
     const pool = selectKeyPool(r.key.provider_id, r.upstreamModel, r.key.channel_id);
-    // 过滤已被 skip 的
-    pool.available = pool.available.filter(p => !state.keys.has(p.key.id));
-    if (pool.available.length === 0) return { error: '该 Key 当前不可用' };
-    return { key: pool.available[0].key, upstreamModel: r.upstreamModel, pool };
+    // 用户显式 pin 的就是这一个 Key — 之前误用评分选出的同通道其他 Key,
+    // 导致"指定付费/独立限流 Key"静默失效。现在只认 pin 的那把 (冷却与否由冷却逻辑自己说话)。
+    const entry = [...pool.available, ...pool.unavailable].find(p => p.key.id === r.key.id);
+    if (!entry) return { error: `指定的 Key (${r.key.label ?? '#' + r.key.id}) 当前不满足条件 (已禁用/失败/或不在该通道)` };
+    return {
+      key: r.key,
+      upstreamModel: r.upstreamModel,
+      pool: {
+        ...pool,
+        available: [entry],
+        unavailable: pool.unavailable.filter(p => p.key.id !== r.key.id),
+      },
+    };
   }
 
   // 两段或纯 model 名 - 用 candidate 池
@@ -264,6 +282,7 @@ export function selectFirstCandidate(
   pool.available = applyMultiKeyMode(pool.available, {
     hubKeyId: opts.hubKeyId ?? null,
     preferredChannelId: opts.preferredChannelId ?? r.key?.channel_id ?? undefined,
+    upstreamModel: r.upstreamModel,
   });
   return { key: pool.available[0].key, upstreamModel: r.upstreamModel, pool };
 }

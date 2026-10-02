@@ -114,6 +114,21 @@ export function getActiveCooldown(keyId: number, reason: string, upstreamModel?:
   return (row as unknown as Cooldown) ?? null;
 }
 
+/**
+ * 冷却作用域拆分:
+ *   - key 级 (upstream_model 为 NULL/空): 对该 Key 的所有模型生效 (auth / 额度耗尽)
+ *   - model 级: 只对同一上游模型生效 (A 模型被限流不该连累 B 模型)
+ * 选 Key 时只认 applicable = key 级 + 当前模型自己的那几条。
+ */
+export function getCooldownScopeForKey(keyId: number, upstreamModel: string | null): {
+  keyWide: Cooldown[]; modelScoped: Cooldown[]; applicable: Cooldown[];
+} {
+  const all = getAllActiveCooldownsForKey(keyId);
+  const keyWide = all.filter(c => !c.upstream_model);
+  const modelScoped = upstreamModel ? all.filter(c => c.upstream_model === upstreamModel) : [];
+  return { keyWide, modelScoped, applicable: [...keyWide, ...modelScoped] };
+}
+
 export function getAllActiveCooldownsForKey(keyId: number): Cooldown[] {
   return getDb()
     .prepare(
