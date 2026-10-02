@@ -22,6 +22,17 @@
 - **可疑端点实测**: SiliconFlow 切国内站 `api.siliconflow.cn/v1` (0.05s vs `.com` 1.97s, 两站账号不通用已备注); Kilo 两种写法均 200 → 不动
 - **结果**: 启用中免费提供商 47 → **50**; `providers` 表改动前全表快照 `.pw-rollback/providers_before.json` (600)
 
+### 路由修复: failover 跨通道乱砸 + 斜杠模型 ID 误判 (2026-10-03, F1+F2, 含一轮自审)
+
+- **现象**: 商汤上游超时后请求被 failover 扔给小米 MIMO / OpenRouter 通道 → `Unsupported model` / `is not a valid model ID` 等迷惑报错; `stealth/space-bunny-alpha` 直接 503 `Provider 'stealth' 下没有可用 Key`
+- **F1 (failover.ts / selector.ts)**: 废除两处 "any enabled key" 退化 — 精确候选池不可用时只兜底到"模型列表显式含该模型 (或列表为空=通配)"的通道; 配了 model_routes 的模型全程限定在路由通道内, 越界即明确报错
+- **F2 (resolver.ts)**: 斜杠前缀只有在真实存在同名提供商**且有可用 Key** 时才按 `provider/model` 指定语义解析; 否则按完整字面量在通道模型列表精确匹配 — OpenRouter 的 org/model 形式 ID 直接可用
+- **自审发现并补上的缺口**: 我们预置的 provider 名与 OpenRouter 组织名有 10 个完全相同 (openai / anthropic / google / deepseek / cohere / minimax / openrouter / perplexity / fireworks / aion-labs, 均无 Key), 第一版 F2 会被 pin 分支劫持并报错 → 补充"pin 找不到 Key 就落到字面量", `openrouter/free`、`deepseek/…` 一类 ID 恢复可用; provider 有 Key 时 pin 语义不变
+- **旁路确认**: images / audio 端点不走 failover (单 Key 一次调用), 无跨通道风险; chat 流式与非流式共用 selectFirstCandidate, 均被 F1 覆盖
+- **数据核查**: discovered_models 无跨通道污染 (0 条); 483 行"通道列表外"记录是商汤 ch15 真实提供的聚合模型 (deepseek-flash / kimi-k3 等), 属有效证据, 保留
+- **测试**: 新增 `test/unit/fallbackPool.test.ts` (4 例) + resolver 新增 4 例 (字面量精确匹配 / 撞名回退 / pin 优先); 全量套件 exit 0
+- **实测**: `stealth/space-bunny-alpha` 200 / `openrouter/free` 200 / `sensenova-6.8-flash-lite` 200 / 未配模型快速 400 model_not_found
+
 ### 作业机制: docs/BACKLOG.md 落盘 (2026-10-03, 用户选 A)
 
 - 已拍板未动工事项从对话记忆移入仓库文件; 规则: 点名执行 → 完成进 CHANGELOG → 清单划掉

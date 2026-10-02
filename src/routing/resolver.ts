@@ -24,6 +24,8 @@ export type ResolveResult =
  *   'M3'                   → 找第一个可用 key, upstream=M3
  *   'stealth/space-bunny-alpha' → 前缀不是真实提供商 (OpenRouter org/model 形式)
  *                                → 按完整字面量在通道模型列表中精确匹配
+ *   'deepseek/xxx' 且 deepseek 是已注册 provider → 先按 pin 解析; 若该 provider 无可用 Key,
+ *                                则继续按完整字面量匹配 (provider 名与上游组织名撞名的情形)
  *   其他                    → Phase 1 不支持
  *
  * Phase 5.E 增强: 如果有 model_routes 配置, 优先按 route 选 channel,
@@ -102,16 +104,20 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
   }
 
   // 2. 两段式: provider/model
+  // provider 存在且有可用 Key → 按 pin 解析 (用户显式指定);
+  // provider 存在但无可用 Key → 不直接报错, 继续按完整字面量匹配 —
+  //   处理"provider 名与上游组织名撞名" (如我们预置了 deepseek/google/anthropic 等空壳 provider,
+  //   而用户要的是 OpenRouter 上的 deepseek/… 真实模型)。三段式强制 pin 仍是硬语义, 不受影响。
   if (parts.length === 2 && providerPinned) {
     const [providerName, upstream] = parts;
     const candidates = allKeys.filter(
       k => k.provider_name === providerName && k.enabled === 1 && (k.channel_enabled ?? 1) === 1 && k.status !== 'failed' && isKeyEligibleForModel(k, upstream),
     );
-    if (candidates.length === 0) {
-      return { error: `Provider '${providerName}' 下没有可用 Key (启用且服务此模型)` };
+    if (candidates.length > 0) {
+      // 简单选第一个 (Phase 2 会按 priority/weight 评分)
+      return { key: candidates[0], upstreamModel: upstream };
     }
-    // 简单选第一个 (Phase 2 会按 priority/weight 评分)
-    return { key: candidates[0], upstreamModel: upstream };
+    // candidates 为空 → 落入下方字面量路径
   }
 
   // 3. 字面模型名 — 走到这里说明斜杠前缀不是真实提供商 (F2), 按完整字面量匹配。

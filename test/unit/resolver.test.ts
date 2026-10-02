@@ -93,6 +93,36 @@ describe('resolver', () => {
     assert.equal(r.key.provider_name, 'openrouter');
   });
 
+  it('provider 名与上游组织名撞名 + 该 provider 无 Key → 落到字面量匹配 (F2 补充)', async () => {
+    const { listKeys } = await import('../../src/db/repos/keys.js');
+    const { resolveModel } = await import('../../src/routing/resolver.js');
+    const channels = await import('../../src/db/repos/channels.js');
+    // 模拟: 预置了 deepseek provider (无 Key), 用户的 OpenRouter 通道配了 deepseek/xxx
+    const providers = await import('../../src/db/repos/providers.js');
+    providers.createProvider({ name: 'deepseek', base_url: 'https://api.deepseek.com/v1' }); // 无 key
+    const chs = channels.listChannels();
+    db.prepare('UPDATE channels SET models = ? WHERE id = ?').run('foo-model', chs[0].id);
+    db.prepare('UPDATE channels SET models = ? WHERE id = ?').run('deepseek/deepseek-chat', chs[1].id);
+    const r = resolveModel('deepseek/deepseek-chat', listKeys());
+    assert.ok('key' in r, `expected literal fallback key, got ${JSON.stringify(r)}`);
+    assert.equal(r.upstreamModel, 'deepseek/deepseek-chat');
+    assert.equal(r.key.provider_name, 'openrouter'); // 命中配了它的通道, 不是那个空壳 deepseek
+  });
+
+  it('provider 有可用 Key 时两段式仍按 pin 解析 (撞名不改变显式 pin 语义)', async () => {
+    const { listKeys } = await import('../../src/db/repos/keys.js');
+    const { resolveModel } = await import('../../src/routing/resolver.js');
+    // 现有 fixture: provider 'openrouter' 有 Key B1; 另一个通道也配了同名字面量 → pin 应优先
+    const channels = await import('../../src/db/repos/channels.js');
+    const chs = channels.listChannels();
+    for (const c of chs) db.prepare('UPDATE channels SET models = ? WHERE id = ?').run('openrouter/M3', c.id);
+    const r = resolveModel('openrouter/M3', listKeys());
+    assert.ok('key' in r);
+    // provider pin 命中: upstream 是 pin 的第二段 (M3), 且 key 属于 openrouter provider
+    assert.equal(r.upstreamModel, 'M3');
+    assert.equal(r.key.provider_name, 'openrouter');
+  });
+
   it('字面量斜杠 ID 没有任何通道配置 → model_not_found (F2)', async () => {
     const { listKeys } = await import('../../src/db/repos/keys.js');
     const { resolveModel } = await import('../../src/routing/resolver.js');
