@@ -30,7 +30,7 @@
  */
 import { updateKey, getKey } from '../db/repos/keys.js';
 import {
-  setCooldown, isKeyOnCooldown, clearCooldown, getAllActiveCooldownsForKey,
+  setCooldown, isKeyOnCooldown, clearCooldown, clearCooldownIfRecoverable, getAllActiveCooldownsForKey,
   recordCooldownHit, clearCooldownHits, getEscalationLadderDuration,
 } from '../db/repos/cooldowns.js';
 import { logger } from '../util/logger.js';
@@ -162,9 +162,10 @@ export function transitionKeyStatus(
     if (result.upstreamModel) {
       clearCooldown(keyId, 'rate_limit', result.upstreamModel, 'call_succeeded');
     }
-    // F9: 成功也清 key 级 quota cooldown — 请求成功证明余额已恢复,
-    // 原来 quota 行只能等 24h 自然过期 (期间 ×0.2 + ×0.1 headroom 双重降权)
-    clearCooldown(keyId, 'quota', null, 'call_succeeded');
+    // quota 冷却只在"可恢复"时由成功调用清除。24h 信用封禁 (recoverable=0) 等自然过期 /
+    // 探针 / 手动恢复 — 因为"某次成功"并不能证明余额回来了: OpenRouter 这类 Key
+    // 免费模型照样成功, 付费模型仍是 402, 用成功去解封会让它在封与解之间反复抖动。
+    clearCooldownIfRecoverable(keyId, 'quota', null, 'call_succeeded');
     return;
   }
 }

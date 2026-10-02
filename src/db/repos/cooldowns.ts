@@ -147,6 +147,22 @@ export function clearCooldown(keyId: number, reason: string, upstreamModel: stri
     .run(Date.now(), clearedReason, keyId, reason, upstreamModel ?? '', upstreamModel ?? '');
 }
 
+/**
+ * 只清"可恢复"的冷却 (recoverable=1)。
+ * 24h 信用封禁这类 recoverable=0 的"判决"不能被任意一次成功调用抹掉 —
+ * 混搭 Key (免费模型能跑 / 付费模型 402, 如 OpenRouter) 会刚封上就被免费模型的
+ * 成功解掉, 在"封-解"之间反复抖动。它们的恢复路径是自然过期 / 探针 / 手动恢复。
+ */
+export function clearCooldownIfRecoverable(keyId: number, reason: string, upstreamModel: string | null, clearedReason: string): void {
+  getDb()
+    .prepare(
+      `UPDATE cooldowns SET cleared_at = ?, cleared_reason = ?
+       WHERE key_id = ? AND reason = ? AND (upstream_model IS ? OR upstream_model = ?)
+         AND cleared_at IS NULL AND recoverable = 1`,
+    )
+    .run(Date.now(), clearedReason, keyId, reason, upstreamModel ?? '', upstreamModel ?? '');
+}
+
 export function isKeyOnCooldown(keyId: number, upstreamModel?: string | null): { onCooldown: boolean; reason?: string; expiresAt?: number } {
   // 检查模型级 cooldown (最细粒度)
   if (upstreamModel) {

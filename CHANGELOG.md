@@ -31,6 +31,24 @@
 - **现场症状对照**: 部署前线上日志可见 `Key 24h cooldown: quota exhausted` 与 `Key 5min cooldown: 401`
   成片出现 —— 即 R6 误封与 auth 反复触发的直接证据
 
+### 冷却策略: 不可恢复封禁不再被成功调用抹掉 + reason 名归一 (2026-10-03, R7/R8)
+
+> R1-R6 部署后的现场数据发现的新问题: key#27 (openrouter-free) 的 24h 信用封禁
+> `started_at=03:26:30.792` / `cleared_at=03:26:31.293` —— **封上 501ms 就被一次
+> 成功调用解掉**, 在"封-解"之间反复抖动。
+
+- **R7 (cooldowns.ts / keyHealth.ts)**: 新增 `clearCooldownIfRecoverable()`,
+  成功调用只清 `recoverable=1` 的冷却。24h 信用封禁 (`recoverable=0`) 改走
+  自然过期 / 探针 / 手动恢复 —— 因为"某次成功"并不能证明余额回来了: OpenRouter 这类
+  **混搭 Key** 免费模型照样成功、付费模型仍 402, 用成功去解封会让它在封与解之间反复抖动。
+  替换掉原先无条件 `clearCooldown(keyId,'quota',...)` 的 F9 逻辑
+- **R8 (failover.ts)**: `handleFailure` 写的 reason 名 `'transient'` 与 keyHealth 的
+  `'transient_error'` 不一致 → 同一个 (key, model) 因两个 reason 名各写一行冷却,
+  `UNIQUE(key_id, reason, model)` 去不了重, 阶梯升级被稀释。统一为 `'transient_error'`
+  (即 `cooldowns.ts` 头部注释早已声明的规范名, 本次让代码对齐自己的契约)
+- **测试**: 新增 `test/unit/cooldownPolicy.test.ts` (2 例) —— 不可恢复封禁不被成功清除 /
+  可恢复照常清; model 级不连累其他模型 / key 级全模型生效。全量单测 143 通过, `tsc --noEmit` 干净
+
 ### 渠道模型挑选: 三处入口补全 (2026-10-03)
 
 - **新建向导** (cf95d70): 「自动获取」不再一次性灌入几百个模型, 改为可搜索挑选弹窗 — 已有模型默认勾上 (标"已有"), 支持搜索 / 全选筛选项 / 反选 / 清空, 只应用勾选项

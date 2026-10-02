@@ -488,7 +488,9 @@ export function handleFailure(
       const isLocal = isLocalEndpoint(key.base_url);
       setCooldown({
         keyId: k,
-        reason: 'transient',
+        // reason 名与 keyHealth 一致 ('transient_error'): 否则同一个 (key, model) 会
+        // 因为两个 reason 名各写一行冷却, UNIQUE(key_id, reason, model) 去不了重
+        reason: 'transient_error',
         upstreamModel: upstreamModel,
         durationMs: isLocal ? 5_000 : 30_000,
         recoverable: true,
