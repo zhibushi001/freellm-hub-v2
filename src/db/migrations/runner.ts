@@ -13,6 +13,47 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const MIGRATIONS_DIR = join(__dirname);
 
+/**
+ * 永久退役的迁移文件名 —— **磁盘上即使重新出现也一律不执行**。
+ *
+ * 这三个文件从未进过 git (git log --diff-filter=A/D 都查不到): 2026-09-29 服务端
+ * 曾跑在一个未提交的工作副本上, 执行了它们并写进台账, 事后文件从仓库消失。
+ * 其台账行已由迁移 038 清理, /health 的 orphaned 归零 —— 但那 3 行的**另一个作用**
+ * 是安全栓: 只要行还在, 文件一旦被人从旧副本/归档里恢复, runner 就会跳过它们。
+ *
+ * 删行会拆掉这个安全栓, 所以这里补一道显式 denylist 顶上。理由不是洁癖:
+ * 本项目真出过 "006_model_routes.sql 早被删除却躺在容器 dist 里被重放 → 启动崩溃"
+ * 的事故 (见 CHANGELOG)。退役 = SQL 早已执行完毕且被后续迁移取代, 重放只会
+ * 撞上已存在的表/列, 而 runner 对非 idempotent 失败是回滚并抛异常 → 服务起不来。
+ *
+ * 退役判据: 该迁移的逻辑已被现行同名序号的迁移取代, 且 schema 已包含其全部效果。
+ * 新增退役项必须写明"被哪个现行迁移取代 + 为何重放不安全"。
+ */
+const RETIRED_MIGRATIONS = new Set([
+  '004_seed_providers.sql',           // 取代者: 005_seed_providers.sql (台账行已由 038 清理)
+  '005_channel_newapi_fields.sql',    // 取代者: 006_channel_newapi_fields.sql
+  '006_model_routes.sql',             // 取代者: 007_model_routes.sql
+]);
+
+/** 迁移文件清单 (runMigrations 与 getMigrationStatus 共用, 避免两处过滤逻辑漂移) */
+function listMigrationFiles(): string[] {
+  const onDisk = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
+  for (const f of onDisk) {
+    if (RETIRED_MIGRATIONS.has(f)) {
+      // 不静默: 文件重现意味着有人恢复了旧副本, 正是当年 006 事故的前置条件
+      console.warn(
+        `[migration] 🚫 ${f} 已在退役名单中, 不会执行 (其效果早已并入现行迁移; ` +
+        `重复出现的文件是当年"迁移重放 → 启动崩"事故的前置条件, 请从当前仓库重新同步)`,
+      );
+    }
+  }
+  return onDisk
+    // 测试用: 跳过 seed (避免 'minimax' / 'ollama' 等固定名与测试冲突)
+    .filter((f) => !(f.startsWith('00') && f.includes('seed') && process.env.HUB_SKIP_SEED === '1'))
+    .filter((f) => !RETIRED_MIGRATIONS.has(f))
+    .sort();
+}
+
 /** 迁移文件内容指纹 —— 已应用的迁移文件被改动 = 静默失效 (改 WHERE 条件根本不会再跑) */
 function checksumOf(sql: string): string {
   return createHash('sha256').update(sql).digest('hex').slice(0, 32);
@@ -43,11 +84,7 @@ export function runMigrations(db: DatabaseSync): void {
     .all() as Array<{ name: string; checksum: string | null }>;
   const applied = new Map(appliedRows.map((r) => [r.name, r.checksum ?? null]));
 
-  const files = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    // 测试用: 跳过 seed (避免 'minimax' / 'ollama' 等固定名与测试冲突)
-    .filter((f) => !(f.startsWith('00') && f.includes('seed') && process.env.HUB_SKIP_SEED === '1'))
-    .sort();
+  const files = listMigrationFiles();
 
   const insertMigration = db.prepare(
     'INSERT INTO schema_migrations (name, applied_at, checksum) VALUES (?, ?, ?)',
@@ -122,10 +159,7 @@ export function getMigrationStatus(db: DatabaseSync): { applied: number; pending
     .prepare('SELECT name FROM schema_migrations')
     .all() as Array<{ name: string }>;
   const applied = new Set(appliedRows.map((r) => r.name));
-  const files = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .filter((f) => !(f.startsWith('00') && f.includes('seed') && process.env.HUB_SKIP_SEED === '1'))
-    .sort();
+  const files = listMigrationFiles();
   let pending = 0;
   for (const f of files) if (!applied.has(f)) pending++;
   return {

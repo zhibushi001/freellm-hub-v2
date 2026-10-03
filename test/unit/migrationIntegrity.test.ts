@@ -6,7 +6,7 @@
  */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -79,6 +79,34 @@ describe('迁移台账完整性', () => {
     assert.equal(st.pending, 0);
     assert.ok(st.orphaned >= 1, `应检测到孤儿行, got ${JSON.stringify(st)}`);
     assert.ok(mod.getMigrationIntegrityIssues().some((i) => i.name === '999_ghost_migration.sql'));
+  });
+
+  it('退役迁移文件即使重新出现也绝不执行 (038 删台账行后重建安全栓)', async () => {
+    const { runMigrations } = await import('../../src/db/migrations/runner.js');
+    const db = new DatabaseSync(join(dataDir, 'hub.db'));
+    runMigrations(db);
+
+    // 模拟"有人从旧副本/归档里恢复了 006_model_routes.sql" —— 当年 006 孤儿重放
+    // 导致启动崩溃的就是这个场景。用会炸的 SQL: 一旦被执行, 后续断言立刻暴露。
+    const retired = '006_model_routes.sql';
+    const path = join(MIG_DIR, retired);
+    const existed = existsSync(path);
+    const original = existed ? readFileSync(path, 'utf8') : null;
+    try {
+      writeFileSync(path, 'CREATE TABLE this_should_never_be_created (x INTEGER);\n', 'utf8');
+      // 关键: 不能抛异常 (重放会让服务起不来), 也不能建表
+      runMigrations(db);
+
+      const t = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='this_should_never_be_created'",
+      ).get();
+      assert.equal(t, undefined, '退役文件被执行了 —— 安全栓失效');
+      const rec = db.prepare('SELECT name FROM schema_migrations WHERE name = ?').get(retired);
+      assert.equal(rec, undefined, '退役文件不应写入台账');
+    } finally {
+      if (original !== null) writeFileSync(path, original, 'utf8');
+      else rmSync(path, { force: true });
+    }
   });
 
   it('老库没有 checksum 列 → 自动补列并补记指纹, 不炸不阻断', async () => {
