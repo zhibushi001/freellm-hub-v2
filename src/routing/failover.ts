@@ -21,6 +21,7 @@
  */
 import {httpSend} from '../adapters/client.js'
 import {getDecryptedApiKey, recordKeyUsage} from '../db/repos/keys.js'
+import {recordOutcome as recordCircuitOutcome, claimProbeSlot} from '../db/repos/circuitBreaker.js'
 import {transitionKeyStatus, getEscalationLadder, recordCooldownHit, clearCooldownHits} from '../services/keyHealth.js'
 import {recordUsage} from '../services/usageService.js'
 import {parseJsonSafe} from '../util/json.js'
@@ -534,6 +535,11 @@ async function tryOnce(
     recordQuotaHeaders(key.id, res.headers);
     transitionKeyStatus(key.id, { status: res.status, body: parseJsonSafe(res.body), upstreamModel });
     recordKeyUsage(key.id, res.status >= 200 && res.status < 300, latencyMs);
+    // 熔断器 + EWMA: 5xx/429/408 算熔断级失败; 4xx 客户端错误与 401/402/403 不算
+    const okRes = res.status >= 200 && res.status < 300;
+    recordCircuitOutcome(key.id, upstreamModel, okRes, latencyMs, {
+      breakerFailure: !okRes && (res.status >= 500 || res.status === 429 || res.status === 408),
+    });
     const body = parseJsonSafe(res.body);
     const usage = body?.usage ?? {};
     recordUsage({
@@ -571,6 +577,8 @@ async function tryOnce(
     const latencyMs = Date.now() - start;
     transitionKeyStatus(key.id, { status: 0, error: e.message, upstreamModel });
     recordKeyUsage(key.id, false, latencyMs);
+    // 连接失败/超时 = 熔断级失败 (这是熔断器最主要的触发源)
+    recordCircuitOutcome(key.id, upstreamModel, false, latencyMs, { breakerFailure: true });
     recordUsage({
       hub_key_id: hubKeyId,
       key_id: key.id,
