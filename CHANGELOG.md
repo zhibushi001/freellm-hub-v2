@@ -75,6 +75,29 @@
 实测: 迁移 036 生效 (price_catalog 表 + usage_logs.cost_usd + hub_keys 预算列),
 真实请求走通成本落库 (免费渠道 cost=0 / price_ref=null), 未设配额时请求不受影响。
 
+## 迁移台账体检 (审计 P0 项收尾)
+
+审计发现 `schema_migrations` **只按文件名记账, 没有内容指纹**: 已应用的迁移文件被改动后
+是**永久 no-op** (改一个 `WHERE` 条件以为修好了, 实际根本不会再执行), 而 `/health` 照样返回
+200、部署门禁照样通过。同时台账里"磁盘上已不存在的孤儿行"完全不可见 —— 本项目就藏着 3 条
+(历史上 004/005/006 被改名或删除, `scripts/deploy.sh` 里还留着 006 孤儿导致启动崩溃的事故注释)。
+
+现在:
+- `schema_migrations` 加 `checksum` 列 (sha256 前 32 位), 新迁移写入指纹; 老库启动时自动补列
+  并给每条补记当前指纹 —— 升级无感, 之后就能检测改动。
+- 每次启动做台账体检: 已应用文件内容与台账不符 → `modified`; 台账有而磁盘无 → `orphaned`。
+- `/health` 暴露 `migrations_modified` / `migrations_orphaned`, 默认**不阻断启动**
+  (孤儿行不该让服务起不来), 需要严格门禁时设 `HUB_STRICT_MIGRATIONS=1` 启动即失败。
+- 实测当前实例: `migrations_pending=0, migrations_modified=0, migrations_orphaned=3` ——
+  那 3 条历史孤儿行第一次变得可见 (先保留不删: 删台账行后若有人恢复同名旧文件, 会触发
+  当年 006 那种"迁移重放 → 启动崩"的事故)。
+
+顺带删掉前端 `api.getUsageDaily()`: 它指向的 `/api/admin/usage/daily` 后端**从来没有这个
+路由**, 调了必 404。趋势图用的是 `/api/admin/usage/trend`, 本来就从 `usage_logs` 实时聚合。
+
+测试: 新增 `test/unit/migrationIntegrity.test.ts` 4 例 (幂等 / 检测改动 / 检出孤儿行不阻断 /
+老库自动补列补记)。全量 exit=0。
+
 ### 全项目审计修复 · 第三轮: 部署 / 镜像 / 文档 / 接口契约 (6 项)
 
 17. **部署回滚改为整目录还原**

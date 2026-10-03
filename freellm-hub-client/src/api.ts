@@ -323,7 +323,6 @@ export const api = {
   getUsageModelStats: (days = 7) => request<{ ok: boolean; stats: Array<{ model: string; requests: number; totalTokens: number; promptTokens: number; completionTokens: number; successes: number; failures: number; avgLatency: number }> }>(`/api/admin/usage/model-stats?days=${days}`),
   getUsageChannelStats: (days = 7) => request<{ ok: boolean; stats: Array<{ channelId: number; providerName: string; requests: number; totalTokens: number; successes: number; failures: number; avgLatency: number }> }>(`/api/admin/usage/channel-stats?days=${days}`),
   getUsageErrorStats: (days = 7) => request<{ ok: boolean; stats: Array<{ errorCode: number | null; errorType: string; count: number; percentage: number }> }>(`/api/admin/usage/error-stats?days=${days}`),
-  getUsageDaily: (days = 30) => request<{ ok: boolean; daily: Array<{ day: string; total_requests: number; total_tokens: number; success_count: number; failure_count: number; avg_latency_ms: number }> }>(`/api/admin/usage/daily?days=${days}`),
   getUsageLogs: (limit = 50, offset = 0, status?: string, model?: string) => request<{ ok: boolean; logs: any[]; total: number }>(`/api/admin/usage/logs?limit=${limit}&offset=${offset}${status ? `&status=${status}` : ''}${model ? `&model=${model}` : ''}`),
 
   // ── 成本与价格 ──

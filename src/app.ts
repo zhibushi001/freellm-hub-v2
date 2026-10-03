@@ -199,12 +199,14 @@ export async function buildApp(): Promise<FastifyInstance> {
       const db = getDb();
       const rows = db.prepare('PRAGMA quick_check').all() as unknown as Array<Record<string, unknown>>;
       const checkVal = rows.length ? String(Object.values(rows[0])[0]) : 'missing';
-      const { pending } = getMigrationStatus(db);
+      const { pending, modified, orphaned } = getMigrationStatus(db);
       if (checkVal !== 'ok' || pending > 0) {
         return reply.code(503).send({
           status: 'error',
           db: checkVal,
           migrations_pending: pending,
+          migrations_modified: modified,
+          migrations_orphaned: orphaned,
           timestamp: new Date().toISOString(),
         });
       }
@@ -214,6 +216,9 @@ export async function buildApp(): Promise<FastifyInstance> {
         version: PKG_VERSION,
         db: 'sqlite',
         migrations_pending: 0,
+        // 台账体检: modified = 迁移文件被改动过 (该迁移永不会重跑); orphaned = 历史残留行
+        migrations_modified: modified,
+        migrations_orphaned: orphaned,
         timestamp: new Date().toISOString(),
       };
     } catch (e: any) {
