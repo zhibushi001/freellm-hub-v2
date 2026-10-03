@@ -4,7 +4,6 @@
  */
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { getHubKeyByHash, recordHubKeyUsage, parseAllowedModels } from '../db/repos/hubKeys.js';
-import { checkHubKeyQuota } from '../services/quota.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -14,10 +13,6 @@ declare module 'fastify' {
       prefix: string;
       /** null = 不限制; 数组 = 只允许调用列表中的模型 */
       allowed_models: string[] | null;
-      /** 配额: rpm / 日预算 / 月预算 (null = 不限) —— 之前 rpm 字段存了但从不执行 */
-      rate_limit_rpm: number | null;
-      daily_budget_usd: number | null;
-      monthly_budget_usd: number | null;
     };
   }
 }
@@ -41,9 +36,7 @@ export function isHubKeyAllowedForModel(hubKey: NonNullable<FastifyRequest['hubK
   return hubKey.allowed_models.includes(requested) || hubKey.allowed_models.includes(bare);
 }
 
-export function authenticateHubKey(req: FastifyRequest, reply?: FastifyReply):
-  | { ok: true; hubKey: NonNullable<FastifyRequest['hubKey']> }
-  | { ok: false; error: AuthFailure; quotaExceeded?: boolean } {
+export function authenticateHubKey(req: FastifyRequest): { ok: true; hubKey: NonNullable<FastifyRequest['hubKey']> } | { ok: false; error: AuthFailure } {
   // 同时支持两种 header:
   //   - Authorization: Bearer fh_<64hex> (OpenAI 风格, 主流)
   //   - x-api-key: fh_<64hex> (Anthropic 风格, Claude Code 默认)
@@ -76,48 +69,15 @@ export function authenticateHubKey(req: FastifyRequest, reply?: FastifyReply):
   }
   // 记录使用
   recordHubKeyUsage(key.id);
-  // 配额硬限 (RPM / 日预算 / 月预算): 超了直接 429。
-  // 放在这里 = 所有 /v1/* 端点 (chat / stream / embeddings / images / audio / anthropic) 一次覆盖,
-  // 新加端点不会漏掉。
-  const quota = checkHubKeyQuota(key.id, {
-    rate_limit_rpm: key.rate_limit_rpm,
-    daily_budget_usd: key.daily_budget_usd,
-    monthly_budget_usd: key.monthly_budget_usd,
-  });
-  if (!quota.allowed) {
-    if (quota.retry_after_sec && reply) reply.header('retry-after', String(quota.retry_after_sec));
-    return {
-      ok: false,
-      error: { code: quota.code!, message: quota.message! },
-      quotaExceeded: true,
-    };
-  }
-  return {
-    ok: true,
-    hubKey: {
-      id: key.id,
-      name: key.name,
-      prefix: key.key_prefix,
-      allowed_models: parseAllowedModels(key.allowed_models),
-      rate_limit_rpm: key.rate_limit_rpm ?? null,
-      daily_budget_usd: key.daily_budget_usd ?? null,
-      monthly_budget_usd: key.monthly_budget_usd ?? null,
-    },
-  };
+  return { ok: true, hubKey: { id: key.id, name: key.name, prefix: key.key_prefix, allowed_models: parseAllowedModels(key.allowed_models) } };
 }
 
 /**
  * Fastify preHandler 风格
  */
 export async function requireHubKey(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const result = authenticateHubKey(req, reply);
+  const result = authenticateHubKey(req);
   if (!result.ok) {
-    // 配额超限是 429 (可重试), 鉴权失败才是 401 —— 调用方要能区分"key 有问题"和"钱花完了"
-    if (result.quotaExceeded) {
-      return reply.code(429).send({
-        error: { message: result.error.message, code: result.error.code, type: 'rate_limit_error' },
-      });
-    }
     return reply.code(401).send({ error: { message: result.error.message, code: result.error.code, type: 'hub_key_error' } });
   }
   req.hubKey = result.hubKey;

@@ -119,18 +119,6 @@ export interface Key {
   plain_key?: string | null;
 }
 
-/** 价格目录条目 (美元 / 每百万 token) */
-export interface PriceEntry {
-  id: number;
-  provider_name: string;
-  model_pattern: string;
-  input_price_per_m: number;
-  output_price_per_m: number;
-  note?: string | null;
-  enabled: number;
-  updated_at: number;
-}
-
 export interface HubKey {
   id: number;
   name: string;
@@ -138,9 +126,6 @@ export interface HubKey {
   enabled: number;
   notes?: string | null;
   rate_limit_rpm?: number | null;
-  /** 预算硬限 (美元): null = 不限。超额请求直接 429, 口径 = usage_logs.cost_usd */
-  daily_budget_usd?: number | null;
-  monthly_budget_usd?: number | null;
   expires_at?: number | null;
   created_at: string | number;
   last_used_at?: string | number | null;
@@ -324,15 +309,6 @@ export const api = {
   getUsageChannelStats: (days = 7) => request<{ ok: boolean; stats: Array<{ channelId: number; providerName: string; requests: number; totalTokens: number; successes: number; failures: number; avgLatency: number }> }>(`/api/admin/usage/channel-stats?days=${days}`),
   getUsageErrorStats: (days = 7) => request<{ ok: boolean; stats: Array<{ errorCode: number | null; errorType: string; count: number; percentage: number }> }>(`/api/admin/usage/error-stats?days=${days}`),
   getUsageLogs: (limit = 50, offset = 0, status?: string, model?: string) => request<{ ok: boolean; logs: any[]; total: number }>(`/api/admin/usage/logs?limit=${limit}&offset=${offset}${status ? `&status=${status}` : ''}${model ? `&model=${model}` : ''}`),
-
-  // ── 成本与价格 ──
-  getCostStats: (days = 30, groupBy: 'key' | 'model' | 'hub_key' | 'provider' | 'day' = 'provider') =>
-    request<{ ok: boolean; days: number; groupBy: string; rows: Array<{ bucket: string | number | null; requests: number; successes: number; prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd: number }>; totals: { requests: number; cost_usd: number; total_tokens: number; unpriced_requests: number } }>(
-      `/api/admin/usage/cost?days=${days}&groupBy=${groupBy}`),
-  getPrices: () => request<{ ok: boolean; prices: PriceEntry[] }>('/api/admin/pricing'),
-  savePrice: (data: { provider_name: string; model_pattern: string; input_price_per_m: number; output_price_per_m: number; note?: string | null }) =>
-    request<{ ok: boolean; price: PriceEntry }>('/api/admin/pricing', { method: 'POST', body: JSON.stringify(data) }),
-  deletePrice: (id: number) => request<{ ok: boolean }>(`/api/admin/pricing/${id}`, { method: 'DELETE' }),
 
   // 路由策略
   getRoutingStrategy: () => request<{ strategy: string }>('/api/admin/settings/routing'),
