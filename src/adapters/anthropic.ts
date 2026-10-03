@@ -31,6 +31,7 @@ import {
   anthropicMessagesToOpenAI,
   openAIToAnthropicContent,
 } from './anthropicTools.js';
+import type { AnthropicTool, AnthropicToolChoice } from './anthropicTools.js';
 
 // ---------- Types ----------
 
@@ -38,7 +39,7 @@ import {
 export type AnthropicContent =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64' | 'url'; media_type?: string; data?: string; url?: string } }
-  | { type: 'tool_use'; id: string; name: string; input: any }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> | string }
   | { type: 'tool_result'; tool_use_id: string; content: string | AnthropicContent[]; is_error?: boolean };
 
 export interface AnthropicMessage {
@@ -57,8 +58,8 @@ export interface AnthropicRequest {
   stop_sequences?: string[];
   stream?: boolean;
   metadata?: { user_id?: string };
-  // tools?: any[];  // Phase 3.A.2
-  [k: string]: any;
+  /** 透传字段 (tools / tool_choice 等); Phase 3.A.2 会声明为强类型, 目前按 unknown 透传 */
+  [k: string]: unknown;
 }
 
 export interface AnthropicUsage {
@@ -117,10 +118,10 @@ export function anthropicToOpenAIMessages(req: AnthropicRequest): OpenAIChatRequ
 
   // 4. tools
   if (Array.isArray(req.tools) && req.tools.length > 0) {
-    out.tools = anthropicToolsToOpenAI(req.tools as any);
+    out.tools = anthropicToolsToOpenAI(req.tools as AnthropicTool[]);
   }
   if (req.tool_choice !== undefined) {
-    out.tool_choice = anthropicToolChoiceToOpenAI(req.tool_choice as any);
+    out.tool_choice = anthropicToolChoiceToOpenAI(req.tool_choice as AnthropicToolChoice | undefined);
   }
 
   // metadata.user_id 可忽略
@@ -132,42 +133,21 @@ function extractSystemText(system: AnthropicRequest['system']): string {
   if (typeof system === 'string') return system;
   if (Array.isArray(system)) {
     return system
-      .filter((b) => b.type === 'text')
-      .map((b: any) => b.text)
+      .filter((b): b is Extract<AnthropicContent, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text)
       .join('\n');
   }
   return '';
 }
 
-function _anthropicContentToOpenAI(content: string | AnthropicContent[]): string | any[] {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content) || content.length === 0) return '';
-  // 单元素 text → 简化成 string (OpenAI 兼容)
-  if (content.length === 1 && content[0].type === 'text') return (content[0] as any).text;
-
-  // 多元素 → OpenAI content parts
-  const parts: any[] = [];
-  for (const block of content) {
-    if (block.type === 'text') {
-      parts.push({ type: 'text', text: (block as any).text });
-    } else if (block.type === 'image') {
-      const src = (block as any).source;
-      if (src.type === 'base64' && src.media_type && src.data) {
-        parts.push({
-          type: 'image_url',
-          image_url: { url: `data:${src.media_type};base64,${src.data}` },
-        });
-      } else if (src.type === 'url' && src.url) {
-        parts.push({ type: 'image_url', image_url: { url: src.url } });
-      }
-      // 其他格式暂忽略
-    }
-    // tool_use / tool_result: Phase 3.A.2 处理
-  }
-  return parts;
-}
-
 // ---------- Outbound: OpenAI → Anthropic (non-stream) ----------
+
+/** OpenAI /v1/chat/completions 响应 —— 只声明本文件实际读取的字段 */
+interface OpenAIChatCompletionResponse {
+  id?: string;
+  choices?: Array<{ message?: Record<string, unknown>; finish_reason?: string | null }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
 
 /**
  * OpenAI ChatCompletionResponse → Anthropic Message
@@ -175,7 +155,7 @@ function _anthropicContentToOpenAI(content: string | AnthropicContent[]): string
  * Anthropic content 可以是 text + tool_use blocks
  */
 export function openAIToAnthropicResponse(
-  openaiResp: any,
+  openaiResp: OpenAIChatCompletionResponse,
   requestModel: string,
   upstreamModel: string,
 ): AnthropicResponse {
@@ -241,6 +221,10 @@ import {
   finalizeToolCallStream,
 } from './anthropicTools.js';
 
+/** OpenAI 流式 chunk —— 只声明本文件实际读取的字段 */
+type OpenAISseDelta = { content?: string; tool_calls?: unknown };
+type OpenAISseChunk = { choices?: Array<{ delta?: OpenAISseDelta; finish_reason?: string | null }> };
+
 export async function* openAISseToAnthropicSse(
   openaiSseBytes: AsyncIterable<Uint8Array>,
   requestModel: string,
@@ -288,11 +272,11 @@ export async function* openAISseToAnthropicSse(
       if (!trimmed || !trimmed.startsWith('data:')) continue;
       const data = trimmed.slice(5).trim();
       if (data === '[DONE]') continue;
-      let parsed: any;
-      try { parsed = JSON.parse(data); } catch { continue; }
+      let parsed: OpenAISseChunk;
+      try { parsed = JSON.parse(data) as OpenAISseChunk; } catch { continue; }
 
       const choice = parsed?.choices?.[0];
-      const delta = choice?.delta ?? {};
+      const delta: OpenAISseDelta = choice?.delta ?? {};
 
       // 3a. text delta
       const textDelta = delta.content;
@@ -358,7 +342,7 @@ export async function* openAISseToAnthropicSse(
 }
 
 /** 工具: 把对象转成 Anthropic SSE 事件字符串 (含双换行) */
-function sseEvent(eventName: string, data: any): string {
+function sseEvent(eventName: string, data: unknown): string {
   return `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 

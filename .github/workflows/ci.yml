@@ -16,6 +16,14 @@
 #   - node:sqlite 在 22.23.3 与 24.15.0 上均免 --experimental-sqlite 标志。
 #   - docker build job 首跑即绿: Dockerfile 本来就是 client-builder 阶段先于 runtime 阶段。
 #
+#   告警清单要自己去看, 别信 annotation 条数:
+#   GitHub 每个 check run 最多只回 10 条 annotation, 首跑看到的「10 处 no-explicit-any」
+#   实际是全仓库 539 处被截断后的样子 —— 差点据此判断「还剩一小撮」。
+#   要真实数字必须本地跑 `npx eslint src --ext .ts` 自己数。
+#
+#   actions/checkout 与 actions/setup-node 用 v7 (v4 还在 Node 20 运行时上,
+#   虽然 GitHub 目前强制降到 Node 24 跑所以只是告警, 但等 Node 20 被移除就会变硬错误)。
+#
 # e2e 测试自起本地服务 (createServer + listen 127.0.0.1), 不依赖任何外部网络或密钥,
 # 所以可以在 CI 上直接跑 —— 不需要配 secrets。
 
@@ -46,10 +54,10 @@ jobs:
         node: ['22.x', '24.x']
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node (backend)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -59,7 +67,7 @@ jobs:
         run: npm ci
 
       - name: Setup Node (admin client)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -87,8 +95,12 @@ jobs:
         run: |
           test -f src/public/admin/index.html || { echo "::error::src/public/admin 缺失 — 确认 Build admin client 在 Build backend 之前"; exit 1; }
 
-      - name: Lint
-        run: npm run lint
+      # Lint 是「只减不增」的棘轮, 不是全绿门禁。
+      # 全仓库现存 526 处 @typescript-eslint/no-explicit-any, 一次性还清是个大工程,
+      # 所以这里把上限钉死在今天的水位: 只要不新增 any 就绿, 新增一处就红。
+      # 还清一批就调低 package.json 里 lint:ci 的 --max-warnings 数字, 让它单调下降。
+      - name: "Lint (棘轮 - 不允许新增 any)"
+        run: npm run lint:ci
 
       - name: Unit tests
         run: npm run test:unit
@@ -102,7 +114,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # 与 scripts/deploy.sh 相同的 build args, 保证 CI 构建的镜像与线上镜像同构
       - name: Build image

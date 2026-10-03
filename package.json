@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
+    "lint:ci": "eslint src --ext .ts --max-warnings 526",
     "format": "prettier --write \"src/**/*.ts\"",
     "migrate": "tsx src/db/migrations/runner.ts"
   },
