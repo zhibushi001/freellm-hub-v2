@@ -9,6 +9,7 @@ import {listKeys} from '../../db/repos/keys.js'
 import {logger} from '../../util/logger.js'
 import {getDiscoveredModelsForKey} from '../../db/repos/discoveredModels.js'
 import {listChannels} from '../../db/repos/channels.js'
+import {once} from 'node:events'
 
 export async function registerClientRoutes(app: FastifyInstance): Promise<void> {
   // 所有 /v1/* 需要 Hub Key (但 /v1/messages 自己在路由内处理 + 转 Anthropic 错误格式)
@@ -132,7 +133,12 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
       });
       try {
         for await (const chunk of stream) {
-          reply.raw.write(chunk);
+          // write 返回 false = 内核发送缓冲区已满 (客户端读得慢)。
+          // 必须 await drain 再继续拉上游, 否则 for await 会以上游速度把整个响应
+          // 堆进 Node 堆内存 —— 一把 Hub Key + 一个慢客户端就能打爆进程。
+          if (!reply.raw.write(chunk)) {
+            await once(reply.raw, 'drain');
+          }
         }
       } catch (e: any) {
         // 上游中途断连 (SocketError: other side closed) / 客户端提前断开

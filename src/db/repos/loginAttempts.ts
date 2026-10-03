@@ -32,9 +32,13 @@ export function getLoginStatus(identifier: string): LoginAttemptStatus {
     return { lockedUntil: null, remainingAttempts: MAX_USERNAME_ATTEMPTS, isLocked: false };
   }
   const locked = row.locked_until && row.locked_until > Date.now();
+  // 锁定期一过, 计数就作废 (重新从 0 起算)。
+  // 之前不清零: 第 5 次失败后 attempts 永远 >= 5, 之后每次失败都立刻重新上锁,
+  // 任何人每隔一会儿试错一次就能让单账号网关长期锁在 423 里 (本项目只有 1 个管理员)。
+  const effectiveAttempts = !locked && row.locked_until !== null ? 0 : row.attempts;
   return {
     lockedUntil: locked ? row.locked_until : null,
-    remainingAttempts: Math.max(0, MAX_USERNAME_ATTEMPTS - row.attempts),
+    remainingAttempts: Math.max(0, MAX_USERNAME_ATTEMPTS - effectiveAttempts),
     isLocked: !!locked,
   };
 }
@@ -53,8 +57,11 @@ export function recordFailedLogin(input: {
     .prepare('SELECT id, attempts, locked_until FROM login_attempts WHERE identifier = ?')
     .get(input.identifier) as { id: number; attempts: number; locked_until: number | null } | undefined;
 
-  let newAttempts = (existing?.attempts ?? 0) + 1;
-  let newLockedUntil: number | null = existing?.locked_until ?? null;
+  // 与 getLoginStatus 同规则: 上一次锁定已过期 → 从 0 重新计数
+  const stale = existing?.locked_until != null && existing.locked_until <= now;
+  const baseAttempts = !existing || stale ? 0 : existing.attempts;
+  let newAttempts = baseAttempts + 1;
+  let newLockedUntil: number | null = stale ? null : (existing?.locked_until ?? null);
 
   if (newAttempts >= MAX_USERNAME_ATTEMPTS) {
     newLockedUntil = now + LOCKOUT_USERNAME_MS;
@@ -77,8 +84,9 @@ export function recordFailedLogin(input: {
       .prepare('SELECT id, attempts, locked_until FROM login_attempts WHERE identifier = ?')
       .get(ipId) as { id: number; attempts: number; locked_until: number | null } | undefined;
 
-    let ipAttempts = (ipRow?.attempts ?? 0) + 1;
-    let ipLocked = ipRow?.locked_until ?? null;
+    const ipStale = ipRow?.locked_until != null && ipRow.locked_until <= now;
+    let ipAttempts = (!ipRow || ipStale ? 0 : ipRow.attempts) + 1;
+    let ipLocked = ipStale ? null : (ipRow?.locked_until ?? null);
 
     if (ipAttempts >= MAX_IP_ATTEMPTS) {
       ipLocked = now + LOCKOUT_IP_MS;

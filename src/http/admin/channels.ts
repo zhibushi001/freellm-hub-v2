@@ -244,7 +244,9 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
       const keyIds = keys.map(k => k.id);
       if (keyIds.length > 0) {
         const placeholders = keyIds.map(() => '?').join(',');
-        getDb().prepare(`DELETE FROM usage_logs WHERE key_id IN (${placeholders})`).run(...keyIds);
+        // 不再预删 usage_logs: 033 迁移已把外键改成 ON DELETE SET NULL,
+        // 删 Key 时历史自动保留 (以前这里硬删 = 删一把 Key 抹掉全部用量记录)
+
       }
       // 1) 删除所有 keys (cascade 到 cooldown_hits/cooldowns/discovered_models/model_candidates)
       for (const k of keys) {
@@ -285,16 +287,18 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
     
     const body = req.body as any;
     const patch: any = {};
+    // 文本字段归一化: 显式 null = 清空该字段 (前端"清空模型列表/清空标签"依赖这个语义)。
+    // 注意 String(null) === 'null' —— 直接 String() 会把 null 写进库, 变成字面量 "null"。
+    const textOrNull = (v: unknown): string | null =>
+      v === null || v === undefined ? null : String(v).trim() || null;
     if (body.excluded_models !== undefined) {
-      const trimmed = String(body.excluded_models).trim();
-      patch.excluded_models = trimmed === '' ? null : trimmed;
+      patch.excluded_models = textOrNull(body.excluded_models);
     }
     if (body.models !== undefined) {
-      const trimmed = String(body.models).trim();
-      patch.models = trimmed === '' ? null : trimmed;
+      patch.models = textOrNull(body.models);
     }
     if (body.label !== undefined) {
-      patch.label = String(body.label).trim() || null;
+      patch.label = textOrNull(body.label);
     }
     if (body.priority !== undefined) {
       patch.priority = parseInt(String(body.priority), 10) || 0;
@@ -303,7 +307,7 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
       patch.weight = parseInt(String(body.weight), 10) || 1;
     }
     if (body.test_model !== undefined) {
-      patch.test_model = String(body.test_model).trim() || null;
+      patch.test_model = textOrNull(body.test_model);
     }
     if (body.multi_key_mode !== undefined) {
       patch.multi_key_mode = String(body.multi_key_mode);
@@ -312,13 +316,11 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
       patch.enabled = body.enabled ? 1 : 0;
     }
     if (body.capabilities !== undefined) {
-      const trimmed = String(body.capabilities).trim();
-      patch.capabilities = trimmed === '' ? null : trimmed;
+      patch.capabilities = textOrNull(body.capabilities);
     }
     if (body.tag !== undefined) {
       // 编辑弹窗可改标签 — 之前 schema/handler 都没有 tag, 改了显示成功但落不了库
-      const trimmed = String(body.tag).trim();
-      patch.tag = trimmed === '' ? null : trimmed;
+      patch.tag = textOrNull(body.tag);
     }
     if (Object.keys(patch).length === 0) {
       return reply.code(400).send({ ok: false, error: '没可更新字段' });
@@ -666,7 +668,7 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
     const id = parseInt((req.params as any).id, 10);
     try {
       // 清掉 usage_logs (避免 FK NO ACTION 阻塞)
-      getDb().prepare('DELETE FROM usage_logs WHERE key_id = ?').run(id);
+      // 历史保留 (033 迁移: usage_logs.key_id ON DELETE SET NULL)
       deleteKey(id);
       return reply.send({ ok: true });
     } catch (e: any) {
@@ -723,7 +725,9 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
         const keyIds = keys.map(k => k.id);
         if (keyIds.length > 0) {
           const placeholders = keyIds.map(() => '?').join(',');
-          getDb().prepare(`DELETE FROM usage_logs WHERE key_id IN (${placeholders})`).run(...keyIds);
+          // 不再预删 usage_logs: 033 迁移已把外键改成 ON DELETE SET NULL,
+        // 删 Key 时历史自动保留 (以前这里硬删 = 删一把 Key 抹掉全部用量记录)
+
         }
         for (const k of keys) {
           deleteKey(k.id);

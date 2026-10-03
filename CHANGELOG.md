@@ -7,6 +7,54 @@
 
 > 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则。
 
+### 全项目审计修复 · 第二轮: 数据留存 / 安全 / 接口 / 前端 (9 项)
+
+8. **删 Key 不再抹掉用量历史** (新增迁移 033)
+   审计发现删除路径上有 4 处 `DELETE FROM usage_logs WHERE key_id = ?` —— 因为外键是
+   NO ACTION 会阻塞删除, 干脆硬删历史。删一把废弃 Key = 这把 Key 名下 (含同 Hub Key 其他
+   Key 的) 全部 token/延迟/错误记录不可恢复, 而 `usage_logs` 是唯一的用量记录
+   (`usage_daily` / `request_attempts` 都没人写)。迁移重建表, 把 `key_id` / `hub_key_id` /
+   `virtual_model_id` / `candidate_id` 都改成 `ON DELETE SET NULL`, 删除路径不再预删。
+   实测迁移后 8224 行历史全部保留, 删除后历史行仍在、指针置空。
+9. **登录锁定: 锁定期过期即作废计数** (可被永久锁死)
+   第 5 次失败后 `attempts` 永远 ≥5, 之后每次失败都立刻重新上锁 15 分钟 —— 任何人每隔
+   一会儿试错一次, 就能让这个网关 (只有一个管理员账号) 长期锁在 423 里, 只能改数据库
+   恢复。现在锁定期一过, 计数从 0 重新算。顺带把 `ip:<addr>` 维度接进登录校验
+   (一直在写却没人读 = 文档里的 IP 限流是死的), 并加 UNIQUE 索引 (迁移 034) + 去重,
+   消除并发写各写各的计数。
+10. **`listKeys()` 不再是写操作** (每请求抢写锁)
+   它在每个请求的路由路径上被调用 (chat/selector/failover), 里面却跑着
+   `UPDATE keys ... 'failed 自动回炉'` —— 每个请求抢一次 SQLite 全局写锁。回炉扫描
+   独立成 `recoverExpiredFailedKeys()`, 由后台健康检查 (5 分钟一次) 调用。测试同步加了一条
+   "listKeys 是纯读"的断言。
+11. **备份保留策略不被份数架空**
+   `MAX_BACKUPS=7` 无条件截断, `RETENTION_DAYS=30` 形同虚设 —— 实测备份目录 7 份里 4 份是
+   同一天。现在兜底上限 90, 并额外"同一天只留最新一份", 把名额让给更早的日期。
+12. **分页参数一律 clamp** (`?limit=-1` = 导出全表)
+   SQLite 里 `LIMIT -1` 就是不限量, `usage_logs.error_message` 存着上游错误原文。
+   `react-compat.ts` / `admin/chat.ts` / `admin/usage.ts` 的 limit 全部夹到 [1,500],
+   5 处 days 参数夹到 [1,365]。
+13. **流式响应尊重写背压**
+   `for await (chunk) reply.raw.write(chunk)` 丢弃 write 返回值, 客户端读得慢时会把整个
+   响应以全速堆进 Node 堆内存 —— 一把 Hub Key + 一个慢客户端就能打爆进程。现在
+   `write` 返回 false 时 `await once(reply.raw, 'drain')`。
+14. **Channel PATCH: "清空"真的清空**
+   前端 `x || undefined` + 后端"跳过 undefined" = 清空模型列表/标签/测试模型是**无声的
+   不生效**, 却弹"更新成功"。前端改发显式 null, 后端加 `textOrNull()` 归一化
+   (`String(null) === 'null'`, 直接 String() 会把 null 写成字符串 "null")。
+15. **模型路由支持多通道**
+   创建/编辑都只有一个"目标通道 ID"数字框, 保存时 `channel_ids` 被覆盖成单元素 ——
+   编辑一次描述就能把多通道路由悄悄塌缩成一个。现在是勾选列表 (不勾 = 任意通道),
+   编辑时全量载入原有通道。
+16. **冷却 reason 词汇统一** (见上一轮第 7 项, 本轮一并落地 `transient_error`)
+
+**修正一条审计误报**: 子审计报"编辑弹窗的渠道名称写入 label 导致改名无效"—— 实际
+`channels` 表**没有** `name` 列, 列表显示的就是 `label`, 改名一直是好的。未改动。
+
+测试: 新增 `test/unit/dataRetention.test.ts` (5 例: 删 Key/删 Hub Key 保留历史 ×2、
+锁定过期清零、UNIQUE 索引、PATCH 清空语义), `priorityAndRecovery` 两条回炉测试改为
+调用新函数并新增"读路径不写库"断言。全量 exit=0 (15 文件), 前后端 tsc 均干净。
+
 ### 全项目审计修复 · 第一轮: 路由正确性 (7 项)
 
 用户要求做**全项目审计** (此前只审了 F1/F2 两个文件)。六个方向并行审计共报 ~30 项,

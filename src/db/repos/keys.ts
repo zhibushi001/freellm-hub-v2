@@ -52,17 +52,6 @@ export interface CreateKeyInput {
 
 export function listKeys(): KeyWithChannel[] {
   const db = getDb();
-  // failed 键 30 分钟自动回炉: 拉黑只是冷静期, 不是永久判决。
-  // status_since 由 updateKey 在状态变更时打点 = 可靠的拉黑时间戳;
-  // 恢复为 degraded + 清零连续失败计数 (再坏重新攒5次)。
-  // 放在 listKeys 读路径 = resolver/后台任务/后台UI 任意入口都立即生效。
-  db.prepare(
-    `UPDATE keys SET status = 'degraded',
-        status_reason = 'failed 锁定期 30 分钟已到, 自动回炉重试',
-        failure_count = 0, updated_at = ?
-      WHERE status = 'failed'
-        AND COALESCE(status_since, updated_at) < ?`,
-  ).run(Date.now(), Date.now() - 30 * 60 * 1000);
   return db
     .prepare(
       `SELECT k.*, c.label as channel_label, c.enabled as channel_enabled,
@@ -232,4 +221,26 @@ export function recordKeyUsage(
       }
     }
   }
+}
+
+/**
+ * failed 键 30 分钟自动回炉: 拉黑只是冷静期, 不是永久判决。
+ * status_since 由 updateKey 在状态变更时打点 = 可靠的拉黑时间戳;
+ * 恢复为 degraded + 清零连续失败计数 (再坏重新攒5次)。
+ *
+ * 独立成函数而不是塞在 listKeys(): listKeys 在每个请求的路由路径上被调用
+ * (chat/selector/failover), 在那里做 UPDATE = 每个请求抢一次 SQLite 全局写锁。
+ * 现在由后台健康检查 (5 分钟一次) 调用。
+ */
+export function recoverExpiredFailedKeys(now: number = Date.now()): number {
+  const res = getDb()
+    .prepare(
+      `UPDATE keys SET status = 'degraded',
+          status_reason = 'failed 锁定期 30 分钟已到, 自动回炉重试',
+          failure_count = 0, updated_at = ?
+        WHERE status = 'failed'
+          AND COALESCE(status_since, updated_at) < ?`,
+    )
+    .run(now, now - 30 * 60 * 1000);
+  return Number(res.changes ?? 0);
 }

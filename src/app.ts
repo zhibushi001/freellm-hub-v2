@@ -546,8 +546,20 @@ async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       const userAgent = (req.headers['user-agent'] as string) || 'unknown';
       const identifier = `user:${username}`;
 
-      // P0-3: 失败锁定检查 (username 维度)
+      // P0-3: 失败锁定检查 (username 维度 + IP 维度)
       const { getLoginStatus, recordFailedLogin, clearLoginAttempts } = await import('./db/repos/loginAttempts.js');
+      // IP 维度一直在写 (ip:<addr> 行) 却没人读 → 20 次/小时的 IP 锁定形同虚设。
+      // 现在两个维度都查: 单账号名锁 5 次/15 分钟, 单 IP 锁 20 次/1 小时。
+      const ipStatus = getLoginStatus(`ip:${ip}`);
+      if (ipStatus.isLocked) {
+        const remainMin = Math.ceil((ipStatus.lockedUntil! - Date.now()) / 60000);
+        return reply.code(423).send({
+          ok: false,
+          error: `当前来源 IP 登录失败次数过多，已锁定。请 ${remainMin} 分钟后重试`,
+          code: 'ip_locked',
+          locked_until: ipStatus.lockedUntil,
+        });
+      }
       const status = getLoginStatus(identifier);
       if (status.isLocked) {
         const remainMin = Math.ceil((status.lockedUntil! - Date.now()) / 60000);

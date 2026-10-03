@@ -9,7 +9,7 @@
  *   4. db-backup        (每 24h)    VACUUM INTO 备份 + 清理过期
  *   5. log-cleanup      (每 24h)    清理过期 usage_logs / media_tasks
  */
-import { listKeys } from '../db/repos/keys.js';
+import { listKeys, recoverExpiredFailedKeys } from '../db/repos/keys.js';
 import { getDecryptedApiKey } from '../db/repos/keys.js';
 import { httpSend } from '../adapters/client.js';
 import { transitionKeyStatus } from './keyHealth.js';
@@ -69,6 +69,10 @@ export function stopBackgroundJobs(): void {
 async function runHealthCheck(): Promise<void> {
   // 外层兜底: listKeys()/degradation 的 DB 错误不能变成 unhandledRejection (interval 无 catch)
   try {
+    // failed 键 30 分钟自动回炉 —— 从 listKeys 的读路径挪到这里 (每 5 分钟一次即可,
+    // 不该每个请求都抢一次 SQLite 写锁)
+    const recovered = recoverExpiredFailedKeys();
+    if (recovered > 0) logger.info({ recovered }, 'Recovered expired failed keys');
     const keys = listKeys().filter(k => k.enabled === 1);
     logger.info({ count: keys.length }, 'Health check starting');
     for (const key of keys) {

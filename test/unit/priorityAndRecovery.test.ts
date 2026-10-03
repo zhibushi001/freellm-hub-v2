@@ -43,19 +43,30 @@ describe('failed 键 30 分钟自动回炉', () => {
     assert.equal(keys.getKey(1)?.status, 'failed');
   });
 
-  it('锁 31 分钟已到 → 自动 degraded + 清零 failure_count + 回炉原因', async () => {
+  it('锁 31 分钟已到 → 回炉 degraded + 清零 failure_count + 回炉原因', async () => {
     const keys = await import(`${ROOT}/src/db/repos/keys.js`);
     keys.updateKey(1, { status: 'failed', status_reason: '连续 5 次失败' });
     db.prepare('UPDATE keys SET status_since = ?, failure_count = 5 WHERE id = 1')
       .run(Date.now() - 31 * 60 * 1000);
-    const list = keys.listKeys();
-    const k = list.find(x => x.id === 1);
+    // 回炉扫描已从 listKeys() 挪到独立函数 (读路径不该在每个请求里写库)
+    const n = keys.recoverExpiredFailedKeys();
+    assert.equal(n, 1, '应有 1 把 failed 键回炉');
+    const k = keys.listKeys().find(x => x.id === 1);
     assert.equal(k?.status, 'degraded');
     assert.equal(k?.failure_count, 0, '回炉应清零连续失败计数');
     assert.ok(k?.status_reason?.includes('回炉'), `status_reason: ${k?.status_reason}`);
-    // 再次读取 (已恢复) 不会重复触发
+    // 幂等: 已恢复的不再重复触发
+    assert.equal(keys.recoverExpiredFailedKeys(), 0);
+  });
+
+  it('listKeys() 是纯读: 不再顺手把 failed 键改回 degraded', async () => {
+    const keys = await import(`${ROOT}/src/db/repos/keys.js`);
+    keys.updateKey(1, { status: 'failed', status_reason: '连续 5 次失败' });
+    db.prepare('UPDATE keys SET status_since = ?, failure_count = 5 WHERE id = 1')
+      .run(Date.now() - 31 * 60 * 1000);
     keys.listKeys();
-    assert.equal(keys.getKey(1)?.status, 'degraded');
+    assert.equal(keys.getKey(1)?.status, 'failed',
+      'listKeys 在每个请求的路由路径上, 在那里写库 = 每个请求抢一次 SQLite 写锁');
   });
 
   it('status_since 为 NULL → 退回 updated_at 判定', async () => {
@@ -63,8 +74,8 @@ describe('failed 键 30 分钟自动回炉', () => {
     keys.updateKey(1, { status: 'failed', status_reason: '连续 5 次失败' });
     db.prepare('UPDATE keys SET status_since = NULL, updated_at = ? WHERE id = 1')
       .run(Date.now() - 31 * 60 * 1000);
-    const list = keys.listKeys();
-    assert.equal(list.find(x => x.id === 1)?.status, 'degraded');
+    keys.recoverExpiredFailedKeys();
+    assert.equal(keys.listKeys().find(x => x.id === 1)?.status, 'degraded');
   });
 });
 

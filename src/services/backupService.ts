@@ -17,7 +17,10 @@ import { logger } from '../util/logger.js';
 const BACKUP_DIR = process.env.HUB_BACKUP_DIR
   ? resolve(process.env.HUB_BACKUP_DIR)
   : resolve(config.dataDir, 'backups');
-const MAX_BACKUPS = parseInt(process.env.HUB_MAX_BACKUPS || '7', 10);
+// 份数上限只作兜底 (磁盘救场), 真正的保留策略是"保留多少天"。
+// 原值 7 会把 RETENTION_DAYS=30 完全架空: 一天内多几次部署就把 7 个位置用光,
+// 30 天历史只剩几小时 (实测备份目录 7 份里 4 份是同一天)。
+const MAX_BACKUPS = parseInt(process.env.HUB_MAX_BACKUPS || '90', 10);
 const RETENTION_DAYS = parseInt(process.env.HUB_BACKUP_RETENTION_DAYS || '30', 10);
 
 /**
@@ -52,7 +55,8 @@ export function backupDatabase(): string {
 }
 
 /**
- * 清理过期备份 (超过 RETENTION_DAYS 天) 和超量备份 (超过 MAX_BACKUPS 个)
+ * 清理过期备份: 超过 RETENTION_DAYS 天的, 以及超出兜底份数上限的。
+ * 同一天内的多份备份只保留最新的一份 —— 一天一个还原点就够, 把名额让给更早的日期。
  */
 export function pruneBackups(): number {
   if (!existsSync(BACKUP_DIR)) return 0;
@@ -68,12 +72,17 @@ export function pruneBackups(): number {
   const now = Date.now();
   const maxAgeMs = RETENTION_DAYS * 24 * 60 * 60 * 1000;
   let deleted = 0;
+  const keptToday = new Set<string>();
 
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
+    const dayKey = new Date(f.mtime).toISOString().slice(0, 10);
     const tooOld = now - f.mtime > maxAgeMs;
     const tooMany = i >= MAX_BACKUPS;
-    if (tooOld || tooMany) {
+    // 同日冗余: 只留当天最新一份 (files 已按新→旧排序)
+    const sameDayOlder = keptToday.has(dayKey);
+    if (!tooOld && !tooMany && !sameDayOlder) keptToday.add(dayKey);
+    if (tooOld || tooMany || sameDayOlder) {
       unlinkSync(f.path);
       // 同时删掉配套的 master.key / session.secret 副本
       const base = f.path.slice(0, -3);
@@ -81,7 +90,10 @@ export function pruneBackups(): number {
         try { if (existsSync(side)) unlinkSync(side); } catch { /* intentional empty */ }
       }
       deleted++;
-      logger.info({ file: f.name, reason: tooOld ? 'expired' : 'excess' }, 'Backup pruned');
+      logger.info(
+        { file: f.name, reason: tooOld ? 'expired' : tooMany ? 'excess' : 'same-day' },
+        'Backup pruned',
+      );
     }
   }
   return deleted;

@@ -33,7 +33,9 @@ export async function registerChatAdminRoutes(app: FastifyInstance): Promise<voi
 
   // GET /api/admin/chat/conversations
   app.get('/api/admin/chat/conversations', { preHandler: requireAdmin }, async (req, reply) => {
-    const limit = parseInt((req.query as any).limit ?? '50', 10);
+    // clamp: SQLite 里 LIMIT 传负数 = 不限量, ?limit=-1 可把整表 usage_logs 拖走
+    // (含上游错误原文)。分页参数一律夹到 [1, 500]。
+    const limit = Math.min(500, Math.max(1, parseInt((req.query as any).limit ?? '50', 10) || 50));
     const offset = parseInt((req.query as any).offset ?? '0', 10);
     const conversations = listConversations(limit, offset);
     return reply.send({ ok: true, conversations });

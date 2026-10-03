@@ -153,6 +153,56 @@ export default function ModelRoutes() {
   );
 }
 
+/**
+ * 目标通道多选: 一个模型路由可以钉多个通道 (故障转移集合)。
+ * 之前创建/编辑都只给一个数字输入框 → 保存时 channel_ids 被覆盖成单元素,
+ * 编辑一次描述就把多通道路由悄悄塌缩成一个。这里改为勾选列表, 空 = 任意通道。
+ */
+function ChannelMultiSelect({ value, onChange }: { value: number[]; onChange: (ids: number[]) => void }) {
+  const [channels, setChannels] = useState<Array<{ id: number; label: string; enabled?: number }>>([]);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api.getChannels()
+      .then(list => { if (alive) { setChannels(list as any); setFailed(false); } })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, []);
+
+  const toggle = (id: number) => {
+    onChange(value.includes(id) ? value.filter(x => x !== id) : [...value, id].sort((a, b) => a - b));
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+        {value.length === 0 ? '未勾选 = 任意通道' : `已钉 ${value.length} 个通道 (依次故障转移)`}
+      </div>
+      <div className="max-h-48 overflow-y-auto">
+        {failed ? (
+          <div className="px-3 py-2 text-xs text-red-500">通道列表加载失败</div>
+        ) : channels.length === 0 ? (
+          <div className="px-3 py-2 text-xs text-slate-400">加载中…</div>
+        ) : channels.map(c => (
+          <label key={c.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+            <input
+              type="checkbox"
+              checked={value.includes(c.id)}
+              onChange={() => toggle(c.id)}
+              className="accent-blue-500"
+            />
+            <span className="text-slate-700 dark:text-slate-300">
+              #{c.id} {c.label || '未命名'}
+              {c.enabled === 0 && <span className="ml-1 text-xs text-amber-500">(已停用)</span>}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** B3/B4/L4: 后端真实契约是 request_model + channel_ids(JSON字符串) + notes */
 function parseChannelIds(r: { channel_ids?: string | number[] }): number[] {
   try {
@@ -170,7 +220,7 @@ function CreateRouteModal({
 }) {
   const [form, setForm] = useState({
     model_pattern: '',
-    target_channel_id: '',
+    target_channel_ids: [] as number[],
     description: '',
   });
   const [loading, setLoading] = useState(false);
@@ -181,7 +231,7 @@ function CreateRouteModal({
     try {
       await api.createModelRoute({
         request_model: form.model_pattern,
-        channel_ids: form.target_channel_id ? [parseInt(form.target_channel_id)] : [],
+        channel_ids: form.target_channel_ids,
         notes: form.description,
         enabled: 1,
       });
@@ -215,13 +265,10 @@ function CreateRouteModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">目标渠道 ID (可选, 留空 = 任意渠道)</label>
-            <input
-              type="number"
-              value={form.target_channel_id}
-              onChange={(e) => setForm({ ...form, target_channel_id: e.target.value })}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white input-focus outline-none"
-              placeholder="留空表示任意渠道"
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">目标通道 (可选, 不勾 = 任意通道)</label>
+            <ChannelMultiSelect
+              value={form.target_channel_ids}
+              onChange={(ids) => setForm({ ...form, target_channel_ids: ids })}
             />
           </div>
           <div>
@@ -259,7 +306,7 @@ function EditRouteModal({
 }) {
   const [form, setForm] = useState({
     model_pattern: route.request_model || route.model_pattern || '',
-    target_channel_id: parseChannelIds(route)[0]?.toString() || '',
+    target_channel_ids: parseChannelIds(route),   // 全量载入, 不再只取第一个
     description: route.notes || route.description || '',
     enabled: route.enabled,
   });
@@ -271,7 +318,7 @@ function EditRouteModal({
     try {
       await api.updateModelRoute(route.id, {
         request_model: form.model_pattern,
-        channel_ids: form.target_channel_id ? [parseInt(form.target_channel_id)] : [],
+        channel_ids: form.target_channel_ids,
         notes: form.description,
         enabled: form.enabled,
       });
@@ -304,13 +351,10 @@ function EditRouteModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">目标渠道 ID (可选, 留空 = 任意渠道)</label>
-            <input
-              type="number"
-              value={form.target_channel_id}
-              onChange={(e) => setForm({ ...form, target_channel_id: e.target.value })}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white input-focus outline-none"
-              placeholder="留空表示任意渠道"
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">目标通道 (可选, 不勾 = 任意通道)</label>
+            <ChannelMultiSelect
+              value={form.target_channel_ids}
+              onChange={(ids) => setForm({ ...form, target_channel_ids: ids })}
             />
           </div>
           <div>

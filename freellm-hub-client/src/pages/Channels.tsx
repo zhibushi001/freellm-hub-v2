@@ -510,15 +510,18 @@ export default function Channels() {
       if (editForm.support_stt) capabilities.stt = true;
       const capabilitiesJson = Object.keys(capabilities).length > 0 ? JSON.stringify(capabilities) : '';
 
+      // 显式发 null 而不是空串/undefined: 后端是"部分更新"(undefined 字段直接跳过),
+      // 之前 `|| undefined` 让"清空模型列表/清空标签"变成无声无息的不生效, 却弹"更新成功"。
+      // models 为空 = 通配所有模型, 正是清空时要表达的语义。
       await api.updateChannel(editingChannel.id, {
-        label: editForm.label || undefined,
-        test_model: editForm.test_model || undefined,
+        label: editForm.label.trim() || null,
+        test_model: editForm.test_model.trim() || null,
         priority: editForm.priority,
         weight: editForm.weight,
-        models: editForm.models || undefined,
-        tag: editForm.tag || undefined,
+        models: editForm.models.trim() || null,
+        tag: editForm.tag.trim() || null,
         capabilities: capabilitiesJson,
-      });
+      } as any);
       await loadChannels();
       setShowEditModal(false);
       alert('更新成功');

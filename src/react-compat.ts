@@ -50,8 +50,10 @@ export function registerReactCompatRoutes(app: FastifyInstance): void {
   });
 
   app.get('/api/admin/usage/logs', { preHandler: requireAdmin }, async (req, reply) => {
-    const limit = parseInt((req.query as any).limit ?? '50', 10);
-    const offset = parseInt((req.query as any).offset ?? '0', 10);
+    // clamp: SQLite 里 LIMIT 传负数 = 不限量, ?limit=-1 可把整表 usage_logs 拖走
+    // (含上游错误原文)。分页参数一律夹到 [1, 500]。
+    const limit = Math.min(500, Math.max(1, parseInt((req.query as any).limit ?? '50', 10) || 50));
+    const offset = Math.max(0, parseInt((req.query as any).offset ?? '0', 10) || 0);
     const status = (req.query as any).status as string | undefined;
     const model = (req.query as any).model as string | undefined;
     const db = getDb();

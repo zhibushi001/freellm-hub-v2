@@ -145,8 +145,7 @@ export function regenerateHubKey(id: number): CreateHubKeyResult {
 }
 
 export function deleteHubKey(id: number): void {
-  // usage_logs.hub_key_id 引用 hub_keys(id) 且未设 ON DELETE CASCADE, 需先清理
-  getDb().prepare('DELETE FROM usage_logs WHERE hub_key_id = ?').run(id);
+  // usage_logs.hub_key_id 是 ON DELETE SET NULL (033 迁移), 删 Hub Key 不再抹掉它的用量历史
   getDb().prepare('DELETE FROM hub_keys WHERE id = ?').run(id);
 }
 
