@@ -8,17 +8,14 @@
 
 ## 待办
 
-- [ ] **修 buildx builder（构建会静默失败）** — 当前默认 builder `mybuilder` 是
-      `docker-container` 驱动且状态 `inactive`，启动它要从 Docker Hub 拉
-      `moby/buildkit:buildx-stable-1`，本机网络拉不动直接超时 → `docker compose build`
-      整个失败。`default`（`docker` 驱动，daemon 侧已配 registry-mirrors）是好的，
-      临时解法 `BUILDX_BUILDER=default docker compose build hub`。
-      待定：① 删掉坏掉的 `mybuilder` 改用 default ② 或给 container driver 配好
-      `buildkitd.toml` 镜像源 ③ 或预拉 buildkit 镜像
-      **附带**: 这次 `... 2>&1 | tail -30 && echo "BUILD OK"` 打印了假成功 ——
-      管道尾命令的退出码盖掉了 buildkit 的失败。约定：构建**不要**接 `&&`，
-      单独判 `BUILD_EXIT=$?`；`buildkitd.toml` 的 mirrors 对 `docker-container`
-      驱动不生效，别指望它兜底
+- [x] ~~修 buildx builder（构建会静默失败）~~ — **部署链路已加固** (ece59c1): `deploy.sh`
+      显式钉 `BUILDX_BUILDER=default`（可用环境变量覆盖）并加预检, 不再吃环境的默认值。
+      **踩坑**: 第一版预检用 `docker buildx inspect` 的退出码, 实测 inactive 的 builder
+      **退出码仍是 0** (mybuilder 骗过去了), 必须解析 `Status:` 字段; 预检失败会列出
+      所有 builder 及状态。
+      `a01d71b` 也已把 `deploy.sh` 改成 `if ! docker compose build` (不再被管道 `&&` 盖掉)。
+      **仍余**: 坏掉的 `mybuilder` 本体还留在机器上 (未删), 只是不再被用到;
+      `buildkitd.toml` 的 mirrors 对 `docker-container` 驱动不生效, 那份配置目前是摆设
 - [ ] **同仓库并发写入的提交纪律** — 2026-10-03 实测：我在提交 R1-R6 之后，
       `cooldowns.ts` / `failover.ts` / `keyHealth.ts` + 新增 `cooldownPolicy.test.ts`
       在 03:29:04 被**另一个会话**写入（我全程没碰这四个文件），内容是合理的续作

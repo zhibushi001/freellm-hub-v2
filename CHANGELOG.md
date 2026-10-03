@@ -5,7 +5,35 @@
 
 ## [开发中 / 迭代记录] - 2026-10-01 ~ 2026-10-03
 
-> 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则 + 台账孤儿行清理。
+> 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则 + 台账孤儿行清理 + 部署链路三缺口补齐。
+
+### 部署链路: 三处缺口补齐 (2026-10-03, ece59c1)
+
+> 起因是今天两次"以为改了、其实没生效"。共同根子是**代码和运行中的系统可以悄悄分叉
+> 而没人知道**。以下三条把它变成可问、可拦。
+
+- **健康门禁接入漂移信号** (`scripts/deploy.sh`): 原先只 `grep '"migrations_pending":0'`,
+  `e446e36` 加的 `migrations_modified` / `migrations_orphaned` **完全没接进门禁**。
+  现在要求 `pending=0` **且** `modified=0` —— `modified` 才是最危险的一类:
+  已应用的迁移被事后改动 = 它再也不会重跑, 改个 `WHERE` 就以为"修好了"实际是永久 no-op。
+  今天那个孤儿问题当初就是一路放行通过的。
+- **刻意不把 `migrations_orphaned` 纳入门禁**: 台账体检跑在迁移循环**之前**, 所以"应用
+  清理孤儿行的迁移"那次启动仍报旧值 (038 就是: 应用当次仍报 3, 下次启动才归零)。
+  对它亮红会让**恰恰是修孤儿的那次部署**被判失败并自动回滚。改为放行 + 显式告警。
+  门禁判定已用四种响应实测: `modified=1` / `pending=1` 拒绝, `orphaned=3` 放行
+- **显式钉住 buildx builder** (`deploy.sh`): 原先裸调 `docker compose build`, 全靠环境里
+  默认 builder 恰好可用。现钉 `BUILDX_BUILDER=default` (docker 驱动, daemon 侧已配
+  registry-mirrors), 可用环境变量覆盖, 并加预检。
+  **踩坑**: 第一版预检用 `docker buildx inspect` 的退出码, 实测对 inactive 的 builder
+  **退出码仍是 0** —— 坏掉的 `mybuilder` 直接骗过去了。必须解析 `Status:` 字段。
+  预检失败时列出全部 builder 及各自状态。已在本次部署中实测 (default 放行)
+- **镜像带 commit 标签**: `Dockerfile` 加 `LABEL org.opencontainers.image.revision`,
+  `GIT_SHA` 经 compose build args 贯穿, `deploy.sh` 自动填当前 HEAD。
+  "线上跑的是不是 HEAD" 从"grep 镜像内容 + 比对时间戳推理"变成一条命令:
+  `docker inspect freellm-hub --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
+  本次部署已验证: 容器标签 `ece59c1` == HEAD `ece59c1`
+- 验证: `bash -n` 通过, compose config 确认 GIT_SHA 已贯穿, 门禁判定四路实测,
+  全量单测 186 通过; 并**用项目自己的 `deploy.sh` 完成本次部署** (改动本身即被验证)
 
 ### 迁移台账: 3 条孤儿行清理 (2026-10-03)
 
