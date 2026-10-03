@@ -410,11 +410,14 @@ export function handleFailure(
     }
     case 'key_quota': {
       // 402 / insufficient_quota: skipKey + 24h credit cooldown
+      // 记到"出错的这个模型"上而不是整把 Key: 混搭 Key (OpenRouter 免费模型 + 付费模型)
+      // 若整把封, 付费模型欠费会连带打死免费模型 —— 免费模型本就没欠费。
+      // 真正的"余额耗尽"会逐个模型各记一条, 效果等价于整把停用。
       state.keys.add(k);
       setCooldown({
         keyId: k,
         reason: 'quota',
-        upstreamModel: null,
+        upstreamModel,
         durationMs: 24 * 60 * 60 * 1000,
         recoverable: false,
         source: 'credit',

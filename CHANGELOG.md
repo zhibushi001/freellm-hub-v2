@@ -7,6 +7,41 @@
 
 > 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则。
 
+### 全项目审计修复 · 第一轮: 路由正确性 (7 项)
+
+用户要求做**全项目审计** (此前只审了 F1/F2 两个文件)。六个方向并行审计共报 ~30 项,
+高危项逐条读代码核实无一虚报, 分批修复。第一轮修路由与冷却的 7 项:
+
+1. **字面量路由认 discovered 证据** (上轮 F2 修复的副作用, 用户实测发现)
+   修复前多段模型名 (OpenRouter 的 `org/model`) 只认通道模型列表, 而该列表是人工填的
+   —— 实测 OpenRouter 通道 465 个已发现模型里 **453 个不可路由**。现在 discovered_models
+   与人工列表等价: `aion-labs/aion-3.0-mini` 实测已能转发到上游。
+2. **三段式 `provider/key/model` 真的用指定的 Key**
+   之前 pin 的 Key 被 `selectKeyPool` 选出的同通道其他 Key 顶掉 —— "指定付费 Key"
+   静默失效 (实测 `sensenova-free/ly/...` 实际打到 `zbs`)。现在只认 pin 的那把。
+3. **model 级冷却只作用同模型**
+   冷却查询不区分作用域, 于是 A 模型的 429/403 会把该 Key 对**所有**模型停 24h。
+   新增 `getCooldownScopeForKey`: key 级 (auth/额度) 仍全局, model 级只作用同模型。
+4. **额度封禁按模型记, 且不被任意成功调用抹掉**
+   (现场发现的连锁 bug) 原设计里 402 → 整把 Key 封 24h, 而 `keyHealth` 又会在**任意一次
+   成功后清除**这条"不可恢复"封禁 —— OpenRouter 这类"免费模型能跑、付费模型 402"的 Key
+   于是刚封上就被免费模型的成功解掉, 反复抖动。现在: 封禁记在出错的模型上 (免费模型不受影响),
+   成功只清 `recoverable=1` 的冷却; 真余额耗尽会逐模型各记一条, 效果等同整把停用。
+5. **400 分类不再误封健康 Key**
+   `insufficient`/`rate limit` 这类宽泛词把普通 400 (如 `insufficient permissions`)
+   判成额度耗尽 → 24h 永久封禁。现在只认确凿额度字眼; 400 里的限流字眼归 `rate_limit`
+   (可恢复阶梯冷却)。
+6. **`not a valid model` 认作"模型不存在"**
+   OpenRouter 的原话 `X is not a valid model ID` 之前落进客户端错误分支, 不 failover
+   直接失败 —— 正是今天排查到的那次故障形态。
+7. **冷却 reason 词汇统一**
+   `transient` (failover) 与 `transient_error` (keyHealth) 各写各的, `UNIQUE(key_id, reason, model)`
+   去不了重, 同一 (Key, 模型) 会存两条冷却。
+
+测试: 新增 `test/unit/cooldownPolicy.test.ts` (3 例), `fallbackPool.test.ts` 补 5 例
+(discovered 证据 ×2 / 三段式 pin / 冷却作用域 / 错误分类), 更新 phase2 额度封禁断言。
+全量 14 文件 exit=0。实测: discovered 模型可路由 · 免费模型在付费模型欠费时照常可用 · 三条原报错模型行为符合预期。
+
 ### 路由修复 第二轮: R1-R6 (2026-10-03, F1/F2 后续)
 
 > 上一轮 F1+F2 收紧了 failover 与斜杠模型 ID, 但线上仍间歇性"大模型连不上"。

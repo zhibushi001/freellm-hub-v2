@@ -51,4 +51,14 @@ describe('冷却策略', () => {
     cd.setCooldown({ keyId, reason: 'auth', upstreamModel: null, durationMs: 60_000, recoverable: true, source: 'heuristic' });
     assert.equal(cd.getCooldownScopeForKey(keyId, 'free/model').keyWide.length, 1, 'key 级冷却应全模型生效');
   });
+  it('额度封禁按模型记: 付费模型欠费不连累同 Key 的免费模型', async () => {
+    const cd = await import('../../src/db/repos/cooldowns.js');
+    cd.setCooldown({ keyId, reason: 'quota', upstreamModel: 'paid/gpt', durationMs: 86_400_000, recoverable: false, source: 'credit' });
+    assert.equal(cd.getCooldownScopeForKey(keyId, 'paid/gpt').applicable.length, 1, '欠费模型应被封');
+    assert.equal(cd.getCooldownScopeForKey(keyId, 'free/model').applicable.length, 0, '免费模型不应被连累');
+    // 免费模型成功也不能解掉付费模型的封禁 (不可恢复)
+    cd.clearCooldownIfRecoverable(keyId, 'quota', 'free/model', 'call_succeeded');
+    assert.equal(cd.getCooldownScopeForKey(keyId, 'paid/gpt').applicable.length, 1, '欠费封禁需等 24h 自然过期');
+  });
+
 });

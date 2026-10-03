@@ -109,7 +109,9 @@ export function transitionKeyStatus(
     setCooldown({
       keyId,
       reason: 'quota',
-      upstreamModel: null,  // 整个 key 冷, 不是一个 model
+      // 按出错模型记, 不整把封: 混搭 Key 里"某模型欠费"不等于"这把 Key 全不能用"
+      // (免费模型照样能跑); 真余额耗尽会每个模型各记一条, 效果等同整把停用
+      upstreamModel: result.upstreamModel ?? null,
       durationMs: COOLDOWN_DURATIONS.QUOTA_EXHAUSTED,
       recoverable: false,
       source: 'credit',

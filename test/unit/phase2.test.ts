@@ -245,10 +245,13 @@ describe('phase 2: failover with mock http', () => {
     const r = await failover.chatWithFailover({ model: 'M3', messages: [] }, null);
     assert.equal(r.ok, true);
 
-    // 验证 key 1 写了 24h credit cooldown
+    // 验证 key 1 对该模型写了 24h credit cooldown (按模型记, 不整把封 — 
+    // 混搭 Key 里某模型欠费不该连带停掉同 Key 的免费模型)
     const cooldowns = await import('../../src/db/repos/cooldowns.js');
-    const cd = cooldowns.getActiveCooldown(1, 'quota', null);
+    const cd = cooldowns.getActiveCooldown(1, 'quota', 'M3');
     assert.ok(cd, 'should have quota cooldown');
+    assert.equal(cooldowns.getCooldownScopeForKey(1, 'other-model').applicable.length, 0,
+      '欠费封禁不应连累其他模型');
     assert.equal(cd!.source, 'credit');
     assert.equal(cd!.recoverable, 0);
     // 24h credit cooldown
