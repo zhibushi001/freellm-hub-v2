@@ -8,6 +8,8 @@ services:
       # BuildKit 国内镜像加速 (镜像源优先级: fnnas > dockerproxy > 1ms > daocloud)
       args:
         - BUILDKIT_INLINE_CACHE=1
+        # 打进镜像标签, 用来回答"线上跑的是哪个 commit" (deploy.sh 自动填当前 HEAD)
+        - GIT_SHA=${GIT_SHA:-unknown}
     image: freellm-hub-v2:latest
     container_name: freellm-hub
     restart: unless-stopped

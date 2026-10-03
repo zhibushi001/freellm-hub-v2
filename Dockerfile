@@ -25,6 +25,10 @@ RUN npm run build && npm prune --omit=dev --no-audit
 
 # Production stage
 FROM cgr.dev/chainguard/node:latest AS production
+# 线上跑的是哪个 commit —— 一条命令就能问, 不用再 grep 镜像内容 + 比对时间戳推理。
+# docker inspect freellm-hub --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
 WORKDIR /app
 USER root
 RUN apk add --no-cache curl 2>/dev/null || true
