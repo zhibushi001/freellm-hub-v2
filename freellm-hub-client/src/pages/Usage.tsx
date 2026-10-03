@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { api, UsageLog, UsageDaily } from '../api';
-import { BarChart3, Download, TrendingUp, Activity, Cpu, Server, AlertTriangle } from 'lucide-react';
+import { api, UsageLog, UsageDaily, PriceEntry } from '../api';
+import { BarChart3, Download, TrendingUp, Activity, Cpu, Server, AlertTriangle, DollarSign, Trash2, Plus } from 'lucide-react';
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell,
@@ -18,11 +18,46 @@ export default function Usage() {
   const [slowRequests, setSlowRequests] = useState<Array<{ id: number; request_model: string; routed_model: string | null; provider_name: string | null; latency_ms: number; status: string; created_at: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState('7d');
-  const [activeTab, setActiveTab] = useState<'overview' | 'models' | 'channels' | 'errors' | 'logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'models' | 'channels' | 'errors' | 'cost' | 'logs'>('overview');
+  const [costGroup, setCostGroup] = useState<'provider' | 'model' | 'key' | 'hub_key' | 'day'>('provider');
+  const [costRows, setCostRows] = useState<Array<{ bucket: string | number | null; requests: number; successes: number; prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd: number }>>([]);
+  const [costTotals, setCostTotals] = useState<{ requests: number; cost_usd: number; total_tokens: number; unpriced_requests: number } | null>(null);
+  const [prices, setPrices] = useState<PriceEntry[]>([]);
+  const [priceDraft, setPriceDraft] = useState({ provider_name: '', model_pattern: '', input_price_per_m: '', output_price_per_m: '', note: '' });
+  const [priceMsg, setPriceMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     loadUsage();
   }, [dateRange]);
+
+  useEffect(() => {
+    if (activeTab !== 'cost') return;
+    const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90;
+    api.getCostStats(days, costGroup).then(r => { setCostRows(r.rows); setCostTotals(r.totals); }).catch(() => {});
+    api.getPrices().then(r => setPrices(r.prices)).catch(() => {});
+  }, [activeTab, costGroup, dateRange]);
+
+  const savePrice = async () => {
+    const d = priceDraft;
+    if (!d.model_pattern.trim()) { setPriceMsg({ ok: false, text: '模型名/通配必填' }); return; }
+    const pin = Number(d.input_price_per_m), pout = Number(d.output_price_per_m);
+    if (!Number.isFinite(pin) || !Number.isFinite(pout) || pin < 0 || pout < 0) {
+      setPriceMsg({ ok: false, text: '单价必须是非负数字 (美元/每百万 token)' }); return;
+    }
+    try {
+      await api.savePrice({
+        provider_name: d.provider_name.trim() || '*',
+        model_pattern: d.model_pattern.trim(),
+        input_price_per_m: pin, output_price_per_m: pout,
+        note: d.note.trim() || null,
+      });
+      setPriceMsg({ ok: true, text: '已保存' });
+      setPriceDraft({ provider_name: '', model_pattern: '', input_price_per_m: '', output_price_per_m: '', note: '' });
+      api.getPrices().then(r => setPrices(r.prices)).catch(() => {});
+    } catch (e: any) {
+      setPriceMsg({ ok: false, text: e?.message || '保存失败' });
+    }
+  };
 
   const loadUsage = async () => {
     setLoading(true);
@@ -155,6 +190,16 @@ export default function Usage() {
         >
           <Server size={16} />
           渠道统计
+        </button>
+        <button
+          onClick={() => setActiveTab('cost')}
+          className={`px-4 py-2.5 text-sm font-medium transition-colors ${
+            activeTab === 'cost'
+              ? 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 border-b-transparent text-indigo-600 dark:text-indigo-400'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+          }`}
+        >
+          <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4" />成本</span>
         </button>
         <button
           onClick={() => setActiveTab('errors')}
@@ -440,6 +485,128 @@ export default function Usage() {
       )}
 
       {/* Errors Tab */}
+      {activeTab === 'cost' && (
+        <div className="space-y-4 md:space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 p-4 sm:p-6">
+              <div className="text-xs text-slate-500 dark:text-slate-400">区间总花费</div>
+              <div className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+                ${(costTotals?.cost_usd ?? 0).toFixed(4)}
+              </div>
+            </div>
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 p-4 sm:p-6">
+              <div className="text-xs text-slate-500 dark:text-slate-400">请求数 / Token</div>
+              <div className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+                {costTotals?.requests ?? 0}
+                <span className="ml-2 text-sm font-normal text-slate-500">{(costTotals?.total_tokens ?? 0).toLocaleString()} tok</span>
+              </div>
+            </div>
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 p-4 sm:p-6">
+              <div className="text-xs text-slate-500 dark:text-slate-400">未配价格的请求</div>
+              <div className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+                {costTotals?.unpriced_requests ?? 0}
+              </div>
+              <div className="text-xs text-slate-400 mt-1">免费渠道正常; 付费渠道请在下方价格表登记</div>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200/50 dark:border-slate-700/50 flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold text-slate-900 dark:text-white">花费明细</h3>
+              <div className="ml-auto flex gap-1">
+                {(['provider', 'model', 'key', 'hub_key', 'day'] as const).map(g => (
+                  <button key={g} onClick={() => setCostGroup(g)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                      costGroup === g ? 'bg-indigo-500 text-white' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}>
+                    {{ provider: '按渠道', model: '按模型', key: '按上游 Key', hub_key: '按 Hub Key', day: '按天' }[g]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr>
+                    <th className="px-4 sm:px-6 py-3 text-left font-medium text-slate-500 dark:text-slate-400">分组</th>
+                    <th className="px-4 py-3 text-right font-medium text-slate-500 dark:text-slate-400">请求</th>
+                    <th className="px-4 py-3 text-right font-medium text-slate-500 dark:text-slate-400">Token</th>
+                    <th className="px-4 sm:px-6 py-3 text-right font-medium text-slate-500 dark:text-slate-400">花费 (USD)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                  {costRows.length === 0 ? (
+                    <tr><td colSpan={4} className="px-4 sm:px-6 py-8 text-center text-slate-400 text-sm">该区间还没有用量记录</td></tr>
+                  ) : costRows.map((r, i) => (
+                    <tr key={i}>
+                      <td className="px-4 sm:px-6 py-3 text-slate-900 dark:text-white font-medium">{String(r.bucket ?? '—')}</td>
+                      <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{r.requests}</td>
+                      <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{r.total_tokens.toLocaleString()}</td>
+                      <td className="px-4 sm:px-6 py-3 text-right font-semibold text-slate-900 dark:text-white">${r.cost_usd.toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200/50 dark:border-slate-700/50">
+              <h3 className="font-semibold text-slate-900 dark:text-white">价格表 (美元 / 每百万 token)</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                渠道名留空 = 全局默认价; 模型名支持前缀通配 (如 <code>gpt-4o*</code>)。匹配优先级: 渠道+精确 &gt; 渠道+通配 &gt; 全局+精确 &gt; 全局+通配。
+              </p>
+            </div>
+            <div className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-5 gap-3">
+              <input value={priceDraft.provider_name} onChange={e => setPriceDraft({ ...priceDraft, provider_name: e.target.value })}
+                placeholder="渠道 (留空=全局)" className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm" />
+              <input value={priceDraft.model_pattern} onChange={e => setPriceDraft({ ...priceDraft, model_pattern: e.target.value })}
+                placeholder="模型 / 通配 (必填)" className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm" />
+              <input value={priceDraft.input_price_per_m} onChange={e => setPriceDraft({ ...priceDraft, input_price_per_m: e.target.value })}
+                placeholder="输入单价" inputMode="decimal" className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm" />
+              <input value={priceDraft.output_price_per_m} onChange={e => setPriceDraft({ ...priceDraft, output_price_per_m: e.target.value })}
+                placeholder="输出单价" inputMode="decimal" className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm" />
+              <button onClick={savePrice}
+                className="px-3 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium flex items-center justify-center gap-1">
+                <Plus className="w-4 h-4" />保存
+              </button>
+            </div>
+            {priceMsg && (
+              <div className={`px-4 sm:px-6 pb-3 text-xs ${priceMsg.ok ? 'text-green-600' : 'text-red-500'}`}>{priceMsg.text}</div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr>
+                    <th className="px-4 sm:px-6 py-3 text-left font-medium text-slate-500 dark:text-slate-400">渠道</th>
+                    <th className="px-4 py-3 text-left font-medium text-slate-500 dark:text-slate-400">模型 / 通配</th>
+                    <th className="px-4 py-3 text-right font-medium text-slate-500 dark:text-slate-400">输入</th>
+                    <th className="px-4 py-3 text-right font-medium text-slate-500 dark:text-slate-400">输出</th>
+                    <th className="px-4 sm:px-6 py-3 text-right font-medium text-slate-500 dark:text-slate-400"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                  {prices.length === 0 ? (
+                    <tr><td colSpan={5} className="px-4 sm:px-6 py-8 text-center text-slate-400 text-sm">还没有登记价格 —— 成本看板会全部显示 $0</td></tr>
+                  ) : prices.map(p => (
+                    <tr key={p.id}>
+                      <td className="px-4 sm:px-6 py-3 text-slate-900 dark:text-white">{p.provider_name === '*' ? '(全局)' : p.provider_name}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{p.model_pattern}</td>
+                      <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-300">${p.input_price_per_m}</td>
+                      <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-300">${p.output_price_per_m}</td>
+                      <td className="px-4 sm:px-6 py-3 text-right">
+                        <button onClick={() => api.deletePrice(p.id).then(() => api.getPrices().then(r => setPrices(r.prices))).catch(() => {})}
+                          className="text-red-500 hover:text-red-400" title="删除"><Trash2 className="w-4 h-4 inline" /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'errors' && (
         <div className="space-y-4 md:space-y-6">
           {errorStats.length > 0 && (

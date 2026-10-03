@@ -26,7 +26,7 @@ export default function HubKeys() {
     }
   };
 
-  const handleCreate = async (data: { name: string; allowedModels?: string[] | null; rateLimitRpm?: number | null; expiresInDays?: number | null }) => {
+  const handleCreate = async (data: { name: string; allowedModels?: string[] | null; rateLimitRpm?: number | null; expiresInDays?: number | null; dailyBudgetUsd?: number | null; monthlyBudgetUsd?: number | null }) => {
     try {
       // zod schema 不接受 null, 改为 undefined (省略字段)
       const payload: Record<string, unknown> = {
@@ -34,6 +34,9 @@ export default function HubKeys() {
         allowed_models: data.allowedModels ?? null,
       };
       if (data.rateLimitRpm) payload.rate_limit_rpm = data.rateLimitRpm;
+      // 预算 (美元): 传 null = 不限; zod schema 接受 null
+      if (data.dailyBudgetUsd != null) payload.daily_budget_usd = data.dailyBudgetUsd;
+      if (data.monthlyBudgetUsd != null) payload.monthly_budget_usd = data.monthlyBudgetUsd;
       if (data.expiresInDays) payload.expires_in_days = data.expiresInDays;
       const result = await api.createHubKey(payload as any);
       await loadKeys();
@@ -341,7 +344,7 @@ function CreateKeyModal({
   onCreate,
 }: {
   onClose: () => void;
-  onCreate: (data: { name: string; allowedModels?: string[] | null; rateLimitRpm?: number | null; expiresInDays?: number | null }) => void;
+  onCreate: (data: { name: string; allowedModels?: string[] | null; rateLimitRpm?: number | null; expiresInDays?: number | null; dailyBudgetUsd?: number | null; monthlyBudgetUsd?: number | null }) => void;
 }) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -352,6 +355,9 @@ function CreateKeyModal({
   const [rateLimit, setRateLimit] = useState<number>(60);
   const [enableExpiry, setEnableExpiry] = useState(false);
   const [expiryDays, setExpiryDays] = useState<number>(30);
+  const [enableBudget, setEnableBudget] = useState(false);
+  const [dailyBudget, setDailyBudget] = useState<string>('');
+  const [monthlyBudget, setMonthlyBudget] = useState<string>('');
 
   useEffect(() => {
     api.getGlobalModels().then(setModels).catch(() => setModels([]));
@@ -363,7 +369,9 @@ function CreateKeyModal({
     const allowed = restrict && selected.size > 0 ? Array.from(selected) : null;
     const rpm = enableRateLimit && rateLimit > 0 ? rateLimit : null;
     const days = enableExpiry && expiryDays > 0 ? expiryDays : null;
-    await onCreate({ name, allowedModels: allowed, rateLimitRpm: rpm, expiresInDays: days });
+    const dBudget = enableBudget && Number(dailyBudget) > 0 ? Number(dailyBudget) : null;
+    const mBudget = enableBudget && Number(monthlyBudget) > 0 ? Number(monthlyBudget) : null;
+    await onCreate({ name, allowedModels: allowed, rateLimitRpm: rpm, expiresInDays: days, dailyBudgetUsd: dBudget, monthlyBudgetUsd: mBudget });
     setLoading(false);
   };
 
@@ -506,7 +514,45 @@ function CreateKeyModal({
               {loading ? '创建中...' : '创建'}
             </button>
           </div>
-        </form>
+                  <div>
+            <label className="flex items-center justify-between cursor-pointer mb-2">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">花费预算 (硬上限)</span>
+              <input
+                type="checkbox"
+                checked={enableBudget}
+                onChange={(e) => setEnableBudget(e.target.checked)}
+                className="w-4 h-4 rounded accent-indigo-600"
+              />
+            </label>
+            <p className="text-xs text-slate-400 mb-2">
+              按该 Key 已产生的实际成本累计 (需先在「用量 → 成本」里登记价格), 超额请求直接返回 429。
+              不勾选 = 不限。
+            </p>
+            {enableBudget && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">日预算 (USD)</label>
+                  <input
+                    type="number" min="0" step="0.01" value={dailyBudget}
+                    onChange={(e) => setDailyBudget(e.target.value)}
+                    placeholder="留空 = 不限"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">月预算 (USD)</label>
+                  <input
+                    type="number" min="0" step="0.01" value={monthlyBudget}
+                    onChange={(e) => setMonthlyBudget(e.target.value)}
+                    placeholder="留空 = 不限"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+</form>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
  * 详见 docs/DESIGN.md §3.1 usage_logs / usage_daily
  */
 import { getDb } from '../db/connection.js';
+import { computeCostUsd } from './pricing.js';
 
 export interface UsageInput {
   hub_key_id?: number | null;
@@ -24,14 +25,19 @@ export interface UsageInput {
 }
 
 export function recordUsage(u: UsageInput): void {
+  // 成本按**上游实际跑的模型**算 (routed_model), 因为付钱的是上游那一家。
+  // 没配价格 → 记 0 (免费渠道常态), price_ref 留空。
+  const { cost_usd, price_ref } = computeCostUsd(
+    u.provider_name, u.routed_model || u.request_model, u.prompt_tokens, u.completion_tokens,
+  );
   getDb()
     .prepare(
       `INSERT INTO usage_logs
        (hub_key_id, key_id, provider_name, request_model, routed_model,
         prompt_tokens, completion_tokens, total_tokens,
         latency_ms, status, error_code, error_type, error_message, stream,
-        virtual_model_id, candidate_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        virtual_model_id, candidate_id, cost_usd, price_ref, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       u.hub_key_id ?? null,
@@ -50,6 +56,8 @@ export function recordUsage(u: UsageInput): void {
       u.stream,
       u.virtual_model_id ?? null,
       u.candidate_id ?? null,
+      cost_usd,
+      price_ref,
       Date.now(),
     );
 }

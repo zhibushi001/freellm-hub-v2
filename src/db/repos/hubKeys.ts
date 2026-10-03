@@ -12,6 +12,9 @@ export interface HubKey {
   notes: string | null;
   enabled: number;
   rate_limit_rpm: number | null;
+  /** 配额硬限: null = 不限 (成本取自 usage_logs.cost_usd, 见 src/services/quota.ts) */
+  daily_budget_usd: number | null;
+  monthly_budget_usd: number | null;
   expires_at: number | null;
   last_used_at: number | null;
   created_at: number;
@@ -35,6 +38,8 @@ export interface CreateHubKeyInput {
   rate_limit_rpm?: number;
   expires_at?: number;
   allowed_models?: string[] | null;  // null/空 = 不限制
+  daily_budget_usd?: number | null;    // null/省略 = 不限
+  monthly_budget_usd?: number | null;
 }
 
 export interface CreateHubKeyResult {
@@ -72,10 +77,12 @@ export function createHubKey(input: CreateHubKeyInput): CreateHubKeyResult {
   const now = Date.now();
   const info = getDb()
     .prepare(
-      `INSERT INTO hub_keys (key_hash, key_prefix, name, notes, enabled, rate_limit_rpm, expires_at, plain_key, allowed_models, created_at)
-       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+      `INSERT INTO hub_keys (key_hash, key_prefix, name, notes, enabled, rate_limit_rpm, expires_at, plain_key, allowed_models, daily_budget_usd, monthly_budget_usd, created_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(hash, prefix, input.name, input.notes ?? null, input.rate_limit_rpm ?? null, input.expires_at ?? null, plain, serializeAllowedModels(input.allowed_models), now);
+    .run(hash, prefix, input.name, input.notes ?? null, input.rate_limit_rpm ?? null, input.expires_at ?? null,
+      plain, serializeAllowedModels(input.allowed_models),
+      input.daily_budget_usd ?? null, input.monthly_budget_usd ?? null, now);
   return {
     id: Number(info.lastInsertRowid),
     plainKey: plain,

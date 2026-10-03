@@ -16,6 +16,9 @@ const CreateHubKeySchema = z.object({
   notes: z.string().max(512).optional(),
   expires_in_days: z.union([z.number().positive(), z.string()]).optional(),
   rate_limit_rpm: z.number().positive().optional(),
+  /** 预算硬限 (美元); null/省略 = 不限 */
+  daily_budget_usd: z.union([z.number().min(0), z.null()]).optional(),
+  monthly_budget_usd: z.union([z.number().min(0), z.null()]).optional(),
   /** 允许调用的模型列表; null/省略 = 不限制 */
   allowed_models: z.union([z.array(z.string()), z.null()]).optional(),
 });
@@ -26,6 +29,9 @@ const UpdateHubKeySchema = z.object({
   notes: z.string().max(512).nullable().optional(),
   expires_in_days: z.union([z.number().positive(), z.string(), z.null()]).optional(),
   rate_limit_rpm: z.union([z.number().positive(), z.null()]).optional(),
+  // 预算 (美元): null/'' = 不限; 0 也视为"不限"由 handler 归一
+  daily_budget_usd: z.union([z.number().min(0), z.string(), z.null()]).optional(),
+  monthly_budget_usd: z.union([z.number().min(0), z.string(), z.null()]).optional(),
   allowed_models: z.union([z.array(z.string()), z.null()]).optional(),
 });
 
@@ -38,6 +44,8 @@ function serializeKey(k: NonNullable<ReturnType<typeof getHubKeyById>>) {
     enabled: k.enabled,
     notes: k.notes,
     rate_limit_rpm: k.rate_limit_rpm,
+    daily_budget_usd: k.daily_budget_usd ?? null,
+    monthly_budget_usd: k.monthly_budget_usd ?? null,
     expires_at: k.expires_at,
     created_at: k.created_at,
     last_used_at: k.last_used_at,
@@ -84,6 +92,8 @@ export async function registerHubKeyAdminRoutes(app: FastifyInstance): Promise<v
         expires_at: expiresAt ?? undefined,
         rate_limit_rpm: body.rate_limit_rpm,
         allowed_models: body.allowed_models,
+        daily_budget_usd: body.daily_budget_usd ?? null,
+        monthly_budget_usd: body.monthly_budget_usd ?? null,
       });
       const created = getHubKeyById(r.id)!;
       // plain_key (API 现行) + plainKey (camelCase 别名, 测试/旧调用方在用)
@@ -113,6 +123,14 @@ export async function registerHubKeyAdminRoutes(app: FastifyInstance): Promise<v
     }
     if (body.notes !== undefined) patch.notes = body.notes;
     if (body.rate_limit_rpm !== undefined) patch.rate_limit_rpm = body.rate_limit_rpm;
+    // 预算硬限 (null/'' = 不限): 超额请求直接 429, 口径 = usage_logs.cost_usd 汇总
+    const budgetNum = (v: unknown): number | null => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    };
+    if (body.daily_budget_usd !== undefined) patch.daily_budget_usd = budgetNum(body.daily_budget_usd);
+    if (body.monthly_budget_usd !== undefined) patch.monthly_budget_usd = budgetNum(body.monthly_budget_usd);
     if (body.expires_in_days !== undefined) {
       patch.expires_at = body.expires_in_days === null || body.expires_in_days === '' || body.expires_in_days === 'never'
         ? null

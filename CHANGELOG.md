@@ -34,6 +34,47 @@
 测试: 新增 `test/unit/circuitBreaker.test.ts` 6 例 (阈值熔断 / 单探测位 / 探测成功归零与
 失败退避 / 4xx 不熔断 / 按模型隔离 / 熔断出池 + EWMA 降权)。全量 exit=0。
 
+## 成本与配额 (审计后的能力升级: 第二项)
+
+审计结论: 系统只记 token 数, **没有价格维度、没有成本、没有预算**; `hub_keys.rate_limit_rpm`
+字段建了但**从来没有被执行过** (界面能填、接口能存、请求路径上没人读)。现在补上。
+
+**价格目录 (新增迁移 036 + `src/services/pricing.ts`)**
+- `price_catalog`: 每 (渠道, 模型模式) 的每百万 token 单价。模型模式支持前缀通配 (`gpt-4o*`),
+  渠道名 `*` = 全局默认价。
+- 匹配优先级: 渠道+精确 > 渠道+通配 > 全局+精确 > 全局+通配。60 秒内存缓存, CRUD 时失效。
+- **成本随请求落库**: `usage_logs` 加 `cost_usd` + `price_ref` (记下当时命中哪条价格 ——
+  以后调价了历史账单仍然说得清)。按**上游实际跑的模型**算, 因为付钱的是上游那一家。
+- 没配价格 → 成本记 0、`price_ref` 为 NULL。这是免费渠道的常态, 不是错误 (看板会单独统计
+  "未配价格的请求数", 提示付费渠道是否漏登记)。
+
+**成本看板 (`GET /api/admin/usage/cost?days&groupBy=provider|model|key|hub_key|day`)**
+- 实时从 `usage_logs` 聚合 (请求数/成功数/token/花费), 外加总量汇总。
+- 关于 `usage_daily`: 全仓搜索确认它**从来没有任何代码读写** (只有 001 建表 + 注释),
+  审计也确认用量事实来源只有 `usage_logs`。所以看板不依赖 cron 聚合表 —— 永远最新,
+  也不会出现"聚合表 0 行"的误导。迁移里写明了这一点, 表保留仅为兼容旧库。
+
+**预算与限速硬上限 (`src/services/quota.ts`, 接在 Hub Key 鉴权里)**
+- `hub_keys` 加 `daily_budget_usd` / `monthly_budget_usd` (null = 不限)。
+  口径 = `usage_logs.cost_usd` 的 SUM (索引 `idx_usage_hub` 支撑)。
+- 超额 → **429 + retry-after**, 响应 `code` 区分 `daily_budget_exceeded` /
+  `monthly_budget_exceeded` / `rate_limited`; 鉴权失败仍是 401, 调用方能区分
+  "Key 有问题"和"钱花完了"。
+- `rate_limit_rpm` 第一次真正被执行 (每分钟窗口, 单进程计数, 惰性清理)。
+- 配额闸挂在 `requireHubKey` 上 = chat / stream / embeddings / images / audio / anthropic
+  **一次覆盖全部 `/v1/*`**, 以后加端点不会漏。
+
+**界面**
+- 「用量」页新增**成本**标签页: 区间总花费 / 请求与 token / 未配价格请求数三张卡 +
+  花费明细表 (可按渠道/模型/上游 Key/Hub Key/天切换) + 价格表管理 (增删)。
+- 「Hub Keys」创建弹窗新增花费预算 (日/月, 美元), 说明"需先在用量页登记价格"。
+
+测试: 新增 `test/unit/pricing.test.ts` 6 例 (匹配优先级 / 成本计算与免费渠道 0 成本 /
+成本落库 / 月预算 / 日预算 / RPM 限流含窗口重置)。全量 exit=0, 前后端 tsc 干净。
+
+实测: 迁移 036 生效 (price_catalog 表 + usage_logs.cost_usd + hub_keys 预算列),
+真实请求走通成本落库 (免费渠道 cost=0 / price_ref=null), 未设配额时请求不受影响。
+
 ### 全项目审计修复 · 第三轮: 部署 / 镜像 / 文档 / 接口契约 (6 项)
 
 17. **部署回滚改为整目录还原**
