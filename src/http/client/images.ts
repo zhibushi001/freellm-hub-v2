@@ -109,7 +109,6 @@ export async function registerImageRoutes(app: FastifyInstance): Promise<void> {
 
     const apiKey = getDecryptedApiKey(key.id);
     const url = buildUpstreamUrl(key);
-    const upstreamReq = buildUpstreamRequest(body, resolved.upstreamModel);
     const start = Date.now();
     inflightStart(key.id, resolved.upstreamModel);
 

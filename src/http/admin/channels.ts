@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { listChannels, createChannel, updateChannel, deleteChannel } from '../../db/repos/channels.js';
 import {
-  createProvider, getProviderByName, getProvider, deleteProvider, findProviderPlan, parseProviderPlans,
+  createProvider, getProviderByName, getProvider, deleteProvider, findProviderPlan,
 } from '../../db/repos/providers.js';
 import {
   listKeysByChannel, createKey, getKey, updateKey, deleteKey, getDecryptedApiKey,
@@ -13,7 +13,7 @@ import { listModelRoutes, updateModelRoute } from '../../db/repos/modelRoutes.js
 import { getDb } from '../../db/connection.js';
 import { probeKey } from '../../services/probeService.js';
 import { testChannelModels, getChannelModelSummary } from '../../services/modelTestService.js';
-import { deleteFailedModelsForChannel, clearTestResultsForKey } from '../../db/repos/discoveredModels.js';
+import { deleteFailedModelsForChannel } from '../../db/repos/discoveredModels.js';
 import { toStrBody } from '../../util/body.js';
 import { validateBody, CreateChannelSchema, UpdateChannelSchema, CreateKeySchema, UpdateKeySchema, FetchModelsSchema } from './validation.js';
 
@@ -245,14 +245,9 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
     if (!channel) return reply.code(404).send({ ok: false, error: 'Channel not found' });
     try {
       // 0) 先清掉该 channel 关联 keys 的 usage_logs (避免 FK NO ACTION 阻塞)
+      // 不再预删 usage_logs: 033 迁移已把外键改成 ON DELETE SET NULL,
+      // 删 Key 时历史自动保留 (以前这里硬删 = 删一把 Key 抹掉全部用量记录)
       const keys = listKeysByChannel(channelId);
-      const keyIds = keys.map(k => k.id);
-      if (keyIds.length > 0) {
-        const placeholders = keyIds.map(() => '?').join(',');
-        // 不再预删 usage_logs: 033 迁移已把外键改成 ON DELETE SET NULL,
-        // 删 Key 时历史自动保留 (以前这里硬删 = 删一把 Key 抹掉全部用量记录)
-
-      }
       // 1) 删除所有 keys (cascade 到 cooldown_hits/cooldowns/discovered_models/model_candidates)
       for (const k of keys) {
         deleteKey(k.id);
@@ -448,7 +443,7 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
         }),
         signal: AbortSignal.timeout(10000),
       });
-      const reasoningData = await reasoningRes.json().catch(() => ({}));
+      await reasoningRes.json().catch(() => ({})); // 抽干响应体, 保连接可复用
       results.reasoning = reasoningRes.status >= 200 && reasoningRes.status < 300;
       results.latencyMs = Date.now() - start;
 
@@ -733,15 +728,9 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
           results.push({ id, ok: false, error: 'Channel not found' });
           continue;
         }
-        // 清理关联数据
+        // 清理关联数据 (不再预删 usage_logs: 033 迁移已把外键改成 ON DELETE SET NULL,
+        // 删 Key 时历史自动保留 — 以前这里硬删 = 删一把 Key 抹掉全部用量记录)
         const keys = listKeysByChannel(id);
-        const keyIds = keys.map(k => k.id);
-        if (keyIds.length > 0) {
-          const placeholders = keyIds.map(() => '?').join(',');
-          // 不再预删 usage_logs: 033 迁移已把外键改成 ON DELETE SET NULL,
-        // 删 Key 时历史自动保留 (以前这里硬删 = 删一把 Key 抹掉全部用量记录)
-
-        }
         for (const k of keys) {
           deleteKey(k.id);
         }

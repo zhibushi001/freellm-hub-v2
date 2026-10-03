@@ -10,7 +10,7 @@
  */
 import {getDb} from '../db/connection.js'
 import {listKeys} from '../db/repos/keys.js'
-import {getCooldownScopeForKey, isKeyOnCooldown} from '../db/repos/cooldowns.js'
+import {getCooldownScopeForKey} from '../db/repos/cooldowns.js'
 import {getCircuitStates, breakerGate} from '../db/repos/circuitBreaker.js'
 import {getAllSettings} from '../db/repos/settings.js'
 import {listChannels} from '../db/repos/channels.js'
@@ -133,7 +133,6 @@ function rankPool(keys: any[], upstreamModel: string | null): PoolResult {
   const inputs: ScoringInput[] = keys.map((k, idx) => {
     const br = circuits.get(k.id);
     const gate = breakerGate(br);
-    const cd = upstreamModel ? isKeyOnCooldown(k.id, upstreamModel) : { onCooldown: false };
     const cds = getCooldownScopeForKey(k.id, upstreamModel).applicable;
     // 仅用户主动禁用才排除 — 失败/冷却/配额耗尽仍留在池中，靠评分降权
     // 这样失败 Key 可以自动恢复

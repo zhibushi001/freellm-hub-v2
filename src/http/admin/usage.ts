@@ -15,7 +15,6 @@ import {
   getUsageOverview,
   getSlowRequests,
 } from '../../services/usageStatsService.js';
-import { getDb } from '../../db/connection.js';
 
 export async function registerUsageAdminRoutes(app: FastifyInstance): Promise<void> {
   const requireAdmin = async (req: any, reply: any) => {

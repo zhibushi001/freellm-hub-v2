@@ -8,7 +8,7 @@
  * 恢复 hub.db 没有 master.key = 所有上游 Key 永久不可解。
  * 备份目录默认在数据卷内, 用 HUB_BACKUP_DIR 指到卷外 (另一块盘/NFS/挂载点) 才防整卷丢失。
  */
-import { resolve, join, basename } from 'node:path';
+import { resolve, join } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, unlinkSync, statSync, copyFileSync } from 'node:fs';
 import { config } from '../config/env.js';
 import { getDb } from '../db/connection.js';

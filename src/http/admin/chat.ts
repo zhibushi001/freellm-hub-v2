@@ -138,7 +138,7 @@ export async function registerChatAdminRoutes(app: FastifyInstance): Promise<voi
       // 解析渠道的 capabilities
       let channelCaps: any = {};
       if (ch.capabilities) {
-        try { channelCaps = JSON.parse(ch.capabilities); } catch {}
+        try { channelCaps = JSON.parse(ch.capabilities); } catch { /* capabilities 非合法 JSON → 按空能力处理 */ }
       }
       
       for (const m of ch.models.split(',').map((s: string) => s.trim()).filter(Boolean)) {
@@ -166,7 +166,7 @@ export async function registerChatAdminRoutes(app: FastifyInstance): Promise<voi
       // 解析渠道的 capabilities
       let channelCaps: any = {};
       if (ch?.capabilities) {
-        try { channelCaps = JSON.parse(ch.capabilities); } catch {}
+        try { channelCaps = JSON.parse(ch.capabilities); } catch { /* capabilities 非合法 JSON → 按空能力处理 */ }
       }
       
       for (const dm of models) {

@@ -60,7 +60,7 @@ export function recordFailedLogin(input: {
   // 与 getLoginStatus 同规则: 上一次锁定已过期 → 从 0 重新计数
   const stale = existing?.locked_until != null && existing.locked_until <= now;
   const baseAttempts = !existing || stale ? 0 : existing.attempts;
-  let newAttempts = baseAttempts + 1;
+  const newAttempts = baseAttempts + 1;
   let newLockedUntil: number | null = stale ? null : (existing?.locked_until ?? null);
 
   if (newAttempts >= MAX_USERNAME_ATTEMPTS) {
@@ -85,7 +85,7 @@ export function recordFailedLogin(input: {
       .get(ipId) as { id: number; attempts: number; locked_until: number | null } | undefined;
 
     const ipStale = ipRow?.locked_until != null && ipRow.locked_until <= now;
-    let ipAttempts = (!ipRow || ipStale ? 0 : ipRow.attempts) + 1;
+    const ipAttempts = (!ipRow || ipStale ? 0 : ipRow.attempts) + 1;
     let ipLocked = ipStale ? null : (ipRow?.locked_until ?? null);
 
     if (ipAttempts >= MAX_IP_ATTEMPTS) {

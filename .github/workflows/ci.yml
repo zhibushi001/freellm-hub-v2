@@ -1,0 +1,97 @@
+# 持续集成 —— 公开仓库的自动化门禁
+#
+# 起因: 2026-10-03 连续三处事故 ——
+#   1) 代码修了没提交没部署, 线上跑三天前的镜像
+#   2) 健康门禁只查 migrations_pending, 漏掉了 modified/orphaned
+#   3) buildx builder inactive 导致 docker compose build 静默失败
+# 三者的共同根因是「没有自动化门禁」——全靠人记得跑测试、人记住部署、人盯构建输出。
+# 本工作流把「改完了吗 / 能编译吗 / 能过测吗 / 能构建镜像吗」变成 push/PR 自动回答的问题。
+#
+# 所有命令都在干净 checkout 上实测过, 不是想当然:
+#   - 本地 Node 24.15.0: 单测 186/186, e2e 13 套件 90 用例, lint 0 error
+#   - Node 22.23.3 (容器): 单测 186/186, node:sqlite 免 --experimental-sqlite 标志
+#   - 独立 git 副本 (无 node_modules/dist): npm ci → tsc → build → client build 全绿
+#
+# e2e 测试自起本地服务 (createServer + listen 127.0.0.1), 不依赖任何外部网络或密钥,
+# 所以可以在 CI 上直接跑 —— 不需要配 secrets。
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify · node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json engines 声明 >=22.5.0; 两个版本都已实测通过
+        node: ['22.x', '24.x']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (backend)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install backend deps
+        run: npm ci
+
+      - name: Setup Node (admin client)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: freellm-hub-client/package-lock.json
+
+      - name: Install admin client deps
+        working-directory: freellm-hub-client
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Build admin client
+        working-directory: freellm-hub-client
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: E2E tests (自起服务, 无外部依赖)
+        run: npm run test:e2e
+
+  docker-build:
+    name: docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 与 scripts/deploy.sh 相同的 build args, 保证 CI 构建的镜像与线上镜像同构
+      - name: Build image
+        run: docker build --build-arg GIT_SHA=${{ github.sha }} .

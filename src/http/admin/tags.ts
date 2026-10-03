@@ -4,7 +4,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
   listTags,
-  getTag,
   createTag,
   updateTag,
   deleteTag,

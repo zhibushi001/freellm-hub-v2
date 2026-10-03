@@ -7,7 +7,6 @@
  */
 
 import { listKeys, getDecryptedApiKey } from '../db/repos/keys.js';
-import { logger } from '../util/logger.js';
 
 // ============================================
 // 标准接口定义
@@ -231,7 +230,7 @@ const adobeProvider: MediaProvider = {
   
   supportsType: ['image', 'image_edit'],
   
-  async generate({ apiKey, baseUrl, request, type }): Promise<MediaGenerateResponse> {
+  async generate({ apiKey, baseUrl, request, type: _type }): Promise<MediaGenerateResponse> {
     try {
       const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/images/generations`, {
         method: 'POST',
@@ -358,7 +357,7 @@ const klingProvider: MediaProvider = {
   
   supportsType: ['video', 'video_edit'],
   
-  async generate({ apiKey, baseUrl, request, type }): Promise<MediaGenerateResponse> {
+  async generate({ apiKey, baseUrl, request, type: _type }): Promise<MediaGenerateResponse> {
     try {
       const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/videos/generations`, {
         method: 'POST',
@@ -569,7 +568,7 @@ const pollinationsProvider: MediaProvider = {
   
   supportsType: ['image'],
   
-  async generate({ apiKey, baseUrl, request }): Promise<MediaGenerateResponse> {
+  async generate({ apiKey: _apiKey, baseUrl: _baseUrl, request }): Promise<MediaGenerateResponse> {
     try {
       // Pollinations uses a different API style
       const prompt = encodeURIComponent(request.prompt || '');

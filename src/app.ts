@@ -33,7 +33,6 @@ import { registerModelMappingAdminRoutes } from './http/admin/modelMappings.js';
 import { registerClientRoutes } from './http/client/chat.js';
 import { registerAnthropicClientRoutes } from './http/client/anthropic.js';
 import { registerEmbeddingsRoutes } from './http/client/embeddings.js';
-import { registerImageRoutes } from './http/client/images.js';
 import { registerAudioRoutes } from './http/client/audio.js';
 import { registerVideoRoutes } from './http/client/video.js';
 import { responsesRoutes } from './http/client/responses.js';

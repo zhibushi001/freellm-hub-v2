@@ -2,7 +2,7 @@
  * Admin API 输入验证 schemas
  */
 import { z } from 'zod';
-import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyRequest } from 'fastify';
 
 /** 通用验证结果 */
 export interface ValidationResult<T = unknown> {
