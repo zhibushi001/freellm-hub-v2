@@ -5,7 +5,37 @@
 
 ## [开发中 / 迭代记录] - 2026-10-01 ~ 2026-10-03
 
-> 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则 + 台账孤儿行清理 + 部署链路三缺口补齐。
+> 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则 + 台账孤儿行清理 + 部署链路三缺口补齐、**熔断器移除 + 限流冷却精度修复**。
+
+### 熔断器移除 + 限流冷却精度修复 (2026-10-03 晚)
+
+> 使用者决定: "我们其实完全不需要熔断吧, 因为我们都是自己用" —— 成本/配额类功能已按
+> 同一原则回退过, 熔断的"连续失败猜测拦截"对个人自用同样是纯负担 (上游恢复后还会
+> 继续拦自己的请求)。冷却 (cooldowns) 保留 —— 那是上游 401/402/额度/限流的硬证据。
+
+- **熔断器整体移除, EWMA 保留**:
+  - `circuitBreaker.ts` 瘦身为纯 EWMA: 只剩 `getCircuitStates` (批量读) + `recordOutcome`
+    (喂延迟/失败率, 按 Key×模型隔离); 删除 `breakerGate` / `claimProbeSlot` /
+    `listOpenCircuits` / `getCircuitState` / 退避状态机与阈值常量
+    (`FAILURE_THRESHOLD`/`BASE_OPEN_MS`/`MAX_OPEN_MS`/`PROBE_TTL_MS`)。
+    `recordOutcome` 每次写入顺手把存量行的熔断列归位 `closed`, 旧行随流量自愈, 无需迁移。
+  - `selector.ts`: 不再按熔断剔除候选 (删 `circuit_open` 出池与 `circuit_half_open` 降权位);
+    `scorer.ts`: 删半开因子 `halfOpenFactor` (评分 = base × headroom × rateLimit × cooldown);
+    `resolver.ts`: 删"熔断中/半开"诊断分支; `failover.ts`: 删 `circuit_open` 标签,
+    EWMA 记账不再传 `breakerFailure`。
+  - 测试 `circuitBreaker.test.ts` 重写为 EWMA 语义, 新增核心回归: **连败 10 次的 Key
+    仍留在候选池、不出现 `circuit_open`**。
+- **限流冷却精度事故修复** (同日发现, 网关按 `Retry-After: 86400` 冷却 +24h, 而
+  OpenRouter 每日额度桶的真实重置点 `X-RateLimit-Reset` = 下一个 UTC 午夜 ——
+  **多关 9 小时 51 分**: 上游 08:00 已开闸, 网关 17:51 才放行):
+  - `keyHealth.ts` 新增共享解析 `rateLimitResetRemainingMs` (秒/毫秒 epoch、大小写、
+    合理性 [0, 24h]); `failover.classifyError` 429 分支**精确重置点优先**, 通用
+    `retry-after` 回退。
+  - 每日额度冷却 (`handleFailure` / `transitionKeyStatus`): 有精确重置点按它 +2min,
+    没有才回退"下一个 UTC 午夜 + 2min"。
+  - **迁移 `039_cap_daily_rate_limit_cooldowns.sql`**: 存量晚于 UTC 午夜的
+    `rate_limit` 冷却行统一收敛到午夜 +2min —— 被旧规则多关的 Key 按时自动回场。
+  - 新增 `test/unit/rateLimitReset.test.ts`: 解析器、优先级、每日分支回退全覆盖。
 
 ### 每日额度限流失效 + 误导性 no_keys 事故修复 (2026-10-03)
 

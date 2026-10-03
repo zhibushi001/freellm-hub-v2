@@ -74,7 +74,7 @@ export function resolveMappingChain(name: string): { model: string; chain: strin
   return { model: current, chain, cyclic: false };
 }
 
-/** 虚拟模型候选 (join keys/channels 判断基础可用性; 冷却/熔断由路由池负责) */
+/** 虚拟模型候选 (join keys/channels 判断基础可用性; 冷却由路由池负责) */
 function loadVirtualCandidates(virtualModelId: number): VirtualCandidate[] {
   const rows = getDb()
     .prepare(

@@ -73,6 +73,23 @@ export function dailyQuotaCooldownMs(now = Date.now()): number {
   return Math.min(Math.max(ms, 10 * 60_000), 24 * 3_600_000);
 }
 
+/**
+ * 解析 X-RateLimit-Reset (epoch 时间点, 秒或毫秒) → 距现在的剩余毫秒。
+ * 上游限流响应常带它 (= 限流桶真实开闸时刻), 比通用 retry-after / UTC 午夜猜测准。
+ * 不合理值 (缺失/过期/超过24h) 返回 undefined。
+ * failover.classifyError 与 transitionKeyStatus 共用。
+ */
+export function rateLimitResetRemainingMs(input: any): number | undefined {
+  if (!input) return undefined;
+  const v = input['x-ratelimit-reset'] ?? input['X-RateLimit-Reset'];
+  if (v == null) return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  const abs = n < 1e12 ? n * 1000 : n;
+  const ms = abs - Date.now();
+  return ms > 0 && ms <= 24 * 3_600_000 ? ms : undefined;
+}
+
 export const COOLDOWN_DURATIONS = {
   RATE_LIMIT: 90 * 1000,            // 90s (heuristic, 可探测恢复)
   TRANSIENT_ERROR: 30 * 1000,        // 30s
@@ -152,11 +169,21 @@ export function transitionKeyStatus(
   //  - 瞬时限速: 90s heuristic (可探测恢复)
   if (result.status === 429) {
     const daily = isDailyQuotaMessage(result.body);
+    // 每日额度: 优先上游精确重置点 (body.metadata.headers 的 X-RateLimit-Reset),
+    // +2min 缓冲; 没有才回退 UTC 午夜。事故: 曾无视精确重置点按 24h 猜, 多关 9h+。
+    const resetMs = daily
+      ? (rateLimitResetRemainingMs(result.body?.metadata?.headers)
+          ?? rateLimitResetRemainingMs(result.body?.headers)
+          ?? rateLimitResetRemainingMs(result.body))
+      : undefined;
+    const durationMs = daily
+      ? (resetMs != null ? Math.min(resetMs, 24 * 3_600_000) + 120_000 : dailyQuotaCooldownMs())
+      : COOLDOWN_DURATIONS.RATE_LIMIT;
     setCooldown({
       keyId,
       reason: 'rate_limit',
       upstreamModel: result.upstreamModel ?? null,
-      durationMs: daily ? dailyQuotaCooldownMs() : COOLDOWN_DURATIONS.RATE_LIMIT,
+      durationMs,
       recoverable: true,
       source: daily ? 'authoritative' : 'heuristic',
     });

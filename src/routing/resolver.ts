@@ -12,7 +12,6 @@ import { getChannel } from '../db/repos/channels.js';
 import { getDiscoveredModelKeys } from '../db/repos/discoveredModels.js';
 import { getProviderByName } from '../db/repos/providers.js';
 import { getAllActiveCooldownsForKey } from '../db/repos/cooldowns.js';
-import { getCircuitState } from '../db/repos/circuitBreaker.js';
 
 export type ResolveResult =
   | { key: KeyWithChannel; upstreamModel: string }
@@ -188,18 +187,6 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
         temp.push(`${label} ${desc} 冷却至 ${fmtRetryTime(cd.expires_at)}`);
         earliest = Math.min(earliest, cd.expires_at);
         continue;
-      }
-      if (k.status !== 'failed') {
-        const cs = getCircuitState(k.id, upstream);
-        if (cs && cs.state === 'open') {
-          const until = cs.retry_at ?? now;
-          if (until > now) {
-            temp.push(`${label} 熔断中，${fmtRetryTime(until)} 自动探测`);
-            earliest = Math.min(earliest, until);
-          } else {
-            temp.push(`${label} 熔断半开，等待探测`);
-          }
-        }
       }
     }
     if (temp.length > 0) {

@@ -131,8 +131,6 @@ export interface ScoringInput {
   available: number;
   /** cooldown 剩余秒数 (用于日志) */
   cooldown_remaining_sec?: number;
-  /** 1 = 该 (Key×模型) 的熔断器处于半开, 本次是探测请求 (降权但不排除) */
-  circuit_half_open?: number;
 }
 
 export interface ScoringResult {
@@ -178,11 +176,9 @@ export function score(s: ScoringInput, weights: RoutingWeights): ScoringResult {
   // cooldown 护栏: 有 active cooldown → ×0.2 (留在池中可自动恢复, 但显著降权)
   //   之前 cooldown_remaining_sec 算了却没参与评分 → 冷却中的 Key 仍会被选中
   const cooldownFactor = (s.cooldown_remaining_sec ?? 0) > 0 ? 0.2 : 1.0;
-  // 半开探测: 允许发但显著降权 —— 只有确实没有别的选择时才用它
-  const halfOpenFactor = s.circuit_half_open === 1 ? 0.3 : 1.0;
 
-  // 最终分数
-  const effective = base * headroom * rateLimit * cooldownFactor * halfOpenFactor;
+  // 最终分数 (熔断半开因子已随熔断器一起移除)
+  const effective = base * headroom * rateLimit * cooldownFactor;
 
   return { key_id: s.key_id, score: effective, available: true };
 }

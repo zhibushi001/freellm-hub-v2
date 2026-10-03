@@ -22,7 +22,7 @@
 import {httpSend} from '../adapters/client.js'
 import {getDecryptedApiKey, recordKeyUsage} from '../db/repos/keys.js'
 import {recordOutcome as recordCircuitOutcome} from '../db/repos/circuitBreaker.js'
-import {transitionKeyStatus, getEscalationLadder, recordCooldownHit, clearCooldownHits, isDailyQuotaMessage, dailyQuotaCooldownMs} from '../services/keyHealth.js'
+import {transitionKeyStatus, getEscalationLadder, recordCooldownHit, clearCooldownHits, isDailyQuotaMessage, dailyQuotaCooldownMs, rateLimitResetRemainingMs} from '../services/keyHealth.js'
 import {recordUsage} from '../services/usageService.js'
 import {parseJsonSafe} from '../util/json.js'
 import {inflightStart, inflightEnd, inflightWeightPenalty} from '../services/inflightTracker.js'
@@ -147,8 +147,12 @@ export function classifyError(status: number, body: any, headers?: Record<string
   // 429
   if (status === 429) {
     // F6: 优先用真实响应头 (body.headers 是历史包袱, 上游 JSON body 里没有 retry-after)
-    const ra = parseRetryAfter(headers ?? body?.headers ?? body);
-    return { kind: 'rate_limit', retryAfterMs: ra, message: String(msg) };
+    const hdrs = headers ?? body?.headers ?? body;
+    // 精确重置点优先: X-RateLimit-Reset = 限流桶真实开闸时刻 (OpenRouter 每日额度
+    // 会给它), 比通用 retry-after 或"24h 猜测"准得多。事故: 曾按 RA86400 多关 9h51m。
+    const reset = rateLimitResetRemainingMs(hdrs) ?? rateLimitResetRemainingMs(body?.metadata?.headers);
+    const ra = parseRetryAfter(hdrs);
+    return { kind: 'rate_limit', retryAfterMs: reset ?? ra, message: String(msg) };
   }
   // 5xx
   if (status >= 500 && status < 600) return { kind: 'provider_error', message: `HTTP ${status}: ${msg}` };
@@ -305,10 +309,10 @@ export function selectFirstCandidate(
     if (pool.unavailable.length === 0) {
       return { error: `没有通道配置模型 '${r.upstreamModel}'。请检查模型列表或在「渠道」中添加该模型`, errorKind: 'model_not_found' };
     }
-    // 走到这里 = resolver 认为这个模型有 Key, 但候选池里全被"临时"拦下 (冷却/封禁/熔断)。
+    // 走到这里 = resolver 认为这个模型有 Key, 但候选池里全被"临时"拦下 (冷却/封禁)。
     // 这是**暂时**不可用 → keys_cooling (503), 不是"Key 全被禁用"那种配置问题。
     const REASON_LABEL: Record<string, string> = {
-      circuit_open: '熔断中', disabled: '已禁用', quota_exhausted: '额度冷却',
+      disabled: '已禁用', quota_exhausted: '额度冷却',
       rate_limit: '限流冷却', transient_error: '临时故障冷却', unavailable: '暂不可用',
     };
     const uniq = [...new Set(pool.unavailable.map(u => u.reason))];
@@ -514,11 +518,16 @@ export function handleFailure(
       // 每日额度 (free-models-per-day 等): 冷却到 UTC 午夜重置点。
       // recoverable=1 —— 重置后第一次成功调用立即解除, 不用傻等满时长。
       if (isDailyQuotaMessage(cls.message)) {
+        // 优先上游给的精确重置点 (classifyError 已把 X-RateLimit-Reset 解析成 retryAfterMs),
+        // +2min 缓冲防卡边界; 没有才回退"下一个 UTC 午夜 + 2min"。
+        const durationMs = cls.retryAfterMs != null && cls.retryAfterMs > 60_000
+          ? Math.min(cls.retryAfterMs, 24 * 60 * 60 * 1000) + 120_000
+          : dailyQuotaCooldownMs();
         setCooldown({
           keyId: k,
           reason: 'rate_limit',
           upstreamModel,
-          durationMs: dailyQuotaCooldownMs(),
+          durationMs,
           recoverable: true,
           source: 'authoritative',
         });
@@ -605,11 +614,9 @@ async function tryOnce(
     recordQuotaHeaders(key.id, res.headers);
     transitionKeyStatus(key.id, { status: res.status, body: parseJsonSafe(res.body), upstreamModel });
     recordKeyUsage(key.id, res.status >= 200 && res.status < 300, latencyMs);
-    // 熔断器 + EWMA: 5xx/429/408 算熔断级失败; 4xx 客户端错误与 401/402/403 不算
+    // EWMA 记账 (熔断器已按使用者要求移除, 只剩延迟/失败率统计)
     const okRes = res.status >= 200 && res.status < 300;
-    recordCircuitOutcome(key.id, upstreamModel, okRes, latencyMs, {
-      breakerFailure: !okRes && (res.status >= 500 || res.status === 429 || res.status === 408),
-    });
+    recordCircuitOutcome(key.id, upstreamModel, okRes, latencyMs);
     const body = parseJsonSafe(res.body);
     const usage = body?.usage ?? {};
     recordUsage({
@@ -647,8 +654,8 @@ async function tryOnce(
     const latencyMs = Date.now() - start;
     transitionKeyStatus(key.id, { status: 0, error: e.message, upstreamModel });
     recordKeyUsage(key.id, false, latencyMs);
-    // 连接失败/超时 = 熔断级失败 (这是熔断器最主要的触发源)
-    recordCircuitOutcome(key.id, upstreamModel, false, latencyMs, { breakerFailure: true });
+    // 连接失败/超时同样喂进 EWMA
+    recordCircuitOutcome(key.id, upstreamModel, false, latencyMs);
     recordUsage({
       hub_key_id: hubKeyId,
       key_id: key.id,

@@ -11,7 +11,7 @@
 import {getDb} from '../db/connection.js'
 import {listKeys} from '../db/repos/keys.js'
 import {getCooldownScopeForKey} from '../db/repos/cooldowns.js'
-import {getCircuitStates, breakerGate} from '../db/repos/circuitBreaker.js'
+import {getCircuitStates} from '../db/repos/circuitBreaker.js'
 import {getAllSettings} from '../db/repos/settings.js'
 import {listChannels} from '../db/repos/channels.js'
 import {isKeyEligibleForModel} from './resolver.js'
@@ -128,11 +128,10 @@ export function selectFallbackPool(upstreamModel: string, routeChannelIds?: Read
 
 function rankPool(keys: any[], upstreamModel: string | null): PoolResult {
   const strategy = getRoutingStrategy();
-  // 熔断器 + 每 (Key×模型) EWMA: 一次批量查, 不在打分循环里查库
+  // 每 (Key×模型) EWMA: 一次批量查, 不在打分循环里查库 (熔断已按使用者要求移除)
   const circuits = getCircuitStates(keys.map(k => k.id), upstreamModel);
   const inputs: ScoringInput[] = keys.map((k, idx) => {
     const br = circuits.get(k.id);
-    const gate = breakerGate(br);
     const cds = getCooldownScopeForKey(k.id, upstreamModel).applicable;
     // 仅用户主动禁用才排除 — 失败/冷却/配额耗尽仍留在池中，靠评分降权
     // 这样失败 Key 可以自动恢复
@@ -164,9 +163,7 @@ function rankPool(keys: any[], upstreamModel: string | null): PoolResult {
       recent_usage_ratio: 0,  // Phase 2.6 接上
       // 配额护栏数据源: 上游 rate-limit 头 (无头 = 1.0), quota_exhausted 状态 = 0
       remaining_quota_ratio: k.status === 'quota_exhausted' ? 0 : getRemainingQuotaRatio(k.id),
-      // 熔断打开 → 本次彻底不参与 (与"用户禁用"同级); 半开 → 可用但降权
-      available: isUserDisabled || gate.blocked ? 0 : 1,
-      circuit_half_open: gate.halfOpen ? 1 : 0,
+      available: isUserDisabled ? 0 : 1,
       cooldown_remaining_sec: cds.length > 0 ? Math.ceil((cds[0].expires_at - Date.now()) / 1000) : undefined,
     };
   });
@@ -179,13 +176,6 @@ function rankPool(keys: any[], upstreamModel: string | null): PoolResult {
   for (const r of results) {
     const k = keyById.get(r.key_id);
     if (!k) continue;
-    // 熔断在这里强制分流: score() 只认 enabled/status, 不会因为熔断把 key 排除,
-    // 所以出池时自己判一次 —— 熔断打开的 Key 本次绝不参与 (与用户禁用同级)。
-    const gate2 = breakerGate(circuits.get(k.id));
-    if (gate2.blocked) {
-      unavailable.push({ key: k, reason: 'circuit_open', score: r.score });
-      continue;
-    }
     if (r.available) available.push({ key: k, score: r.score });
     else unavailable.push({ key: k, reason: r.reason ?? 'unavailable', score: r.score });
   }
