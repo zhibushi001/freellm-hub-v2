@@ -23,6 +23,11 @@ if (existsSync(clientDist)) {
   if (existsSync(srcPublicAdmin)) rmSync(srcPublicAdmin, { recursive: true, force: true });
   copyRecursive(clientDist, srcPublicAdmin);
   console.log(`[copy-assets] freellm-hub-client/dist/ → src/public/admin/ (前端同步)`);
+} else {
+  // 不 fail: Docker 多阶段构建里前端在独立阶段构建, 本脚本跑的阶段本来就没有它
+  // (Dockerfile 用 COPY --from=client-builder 单独搬产物)。
+  // 但静默跳过曾让 CI 首跑红成两个看不懂的 /admin 404, 所以必须出声。
+  console.warn(`[copy-assets] WARN freellm-hub-client/dist 不存在, 跳过前端同步 — src/public/admin 未更新`);
 }
 
 function copyRecursive(src, dst) {

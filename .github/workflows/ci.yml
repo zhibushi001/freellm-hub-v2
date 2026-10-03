@@ -7,10 +7,14 @@
 # 三者的共同根因是「没有自动化门禁」——全靠人记得跑测试、人记住部署、人盯构建输出。
 # 本工作流把「改完了吗 / 能编译吗 / 能过测吗 / 能构建镜像吗」变成 push/PR 自动回答的问题。
 #
-# 所有命令都在干净 checkout 上实测过, 不是想当然:
-#   - 本地 Node 24.15.0: 单测 186/186, e2e 13 套件 90 用例, lint 0 error
-#   - Node 22.23.3 (容器): 单测 186/186, node:sqlite 免 --experimental-sqlite 标志
-#   - 独立 git 副本 (无 node_modules/dist): npm ci → tsc → build → client build 全绿
+# 验证记录 (2026-10-03 首跑之后的诚实版):
+#   - 首跑红了: 22.x 和 24.x 的 e2e 都挂在 /admin/* 404 —— 前端构建排在后端之后,
+#     copy-assets 找不到 freellm-hub-client/dist 就静默跳过, src/public/admin 始终没建。
+#     此前宣称的「干净 checkout 实测」其实是一份 cp -a 工作区副本, 连 .git 都没有,
+#     继承了 gitignored 的 src/public/admin 和 .env, 正好把这个坑盖住。现已把前端构建
+#     前置并加显式断言, 并用真 git clone 复验过。
+#   - node:sqlite 在 22.23.3 与 24.15.0 上均免 --experimental-sqlite 标志。
+#   - docker build job 首跑即绿: Dockerfile 本来就是 client-builder 阶段先于 runtime 阶段。
 #
 # e2e 测试自起本地服务 (createServer + listen 127.0.0.1), 不依赖任何外部网络或密钥,
 # 所以可以在 CI 上直接跑 —— 不需要配 secrets。
@@ -68,12 +72,20 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Build backend
-        run: npm run build
-
+      # 前端必须先于后端构建: 后端 `npm run build` 末尾跑 scripts/copy-assets.mjs,
+      # 它把 freellm-hub-client/dist/ 同步到 src/public/admin/ (gitignored, 服务从那里静态托管)。
+      # 顺序反了 copy-assets 找不到源就跳过, src/public/admin 始终建不出来, /admin/* 全 404。
       - name: Build admin client
         working-directory: freellm-hub-client
         run: npm run build
+
+      - name: Build backend
+        run: npm run build
+
+      # 显式断言产物到位。失败信息直接指路, 而不是让 e2e 报两个看不懂的 404。
+      - name: Assert admin frontend in place
+        run: |
+          test -f src/public/admin/index.html || { echo "::error::src/public/admin 缺失 — 确认 Build admin client 在 Build backend 之前"; exit 1; }
 
       - name: Lint
         run: npm run lint
