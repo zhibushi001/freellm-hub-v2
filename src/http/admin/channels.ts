@@ -34,6 +34,11 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
     }
     
     const body = toStrBody(req.body);
+    const csvListOrNull = (v: unknown): string | null => {
+      if (v === null || v === undefined) return null;
+      const list = Array.isArray(v) ? v : String(v).split(',');
+      return list.map(x => String(x).trim()).filter(Boolean).join(',') || null;
+    };
     const providerIdRaw = (body.provider_id ?? '').trim();
     const name = (body.name ?? '').trim();
     // 多套餐选择: 当前端从下拉选了某个 plan, 后端用 plan 的 base_url/api_path/models_path/protocol 覆盖 provider 默认值
@@ -113,7 +118,7 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
 
       // 提取 channel 通用字段
       const channelExtras = {
-        models: (body.models ?? '').trim() || null,
+        models: csvListOrNull(body.models),
         model_mapping: (body.model_mapping ?? '').trim() || null,
         status_code_mapping: (body.status_code_mapping ?? '').trim() || null,
         param_override: (body.param_override ?? '').trim() || null,
@@ -291,11 +296,19 @@ export async function registerChannelAdminRoutes(app: FastifyInstance): Promise<
     // 注意 String(null) === 'null' —— 直接 String() 会把 null 写进库, 变成字面量 "null"。
     const textOrNull = (v: unknown): string | null =>
       v === null || v === undefined ? null : String(v).trim() || null;
+
+    // schema 允许 string[] (对 API 调用方友好), 但库里是 CSV 一列 —— 数组先拍平成 CSV。
+    // 否则上层 JSON.stringify 会把数组写成 '["a","b"]' 存进 CSV 列, 之后按逗号切分
+    // 永远匹配不上 → 这个渠道 100% 路由失败, 而且界面看着一切正常。
+    const csvOrNull = (v: unknown): string | null =>
+      Array.isArray(v)
+        ? (v.map(x => String(x).trim()).filter(Boolean).join(',') || null)
+        : textOrNull(v);
     if (body.excluded_models !== undefined) {
-      patch.excluded_models = textOrNull(body.excluded_models);
+      patch.excluded_models = csvOrNull(body.excluded_models);
     }
     if (body.models !== undefined) {
-      patch.models = textOrNull(body.models);
+      patch.models = csvOrNull(body.models);
     }
     if (body.label !== undefined) {
       patch.label = textOrNull(body.label);

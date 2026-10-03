@@ -7,6 +7,33 @@
 
 > 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则。
 
+### 全项目审计修复 · 第三轮: 部署 / 镜像 / 文档 / 接口契约 (6 项)
+
+17. **部署回滚改为整目录还原**
+    原回滚 `tar -xzf -` 只覆盖"包内有的路径", 本次部署新增的文件不会被删 → 回滚出一个
+    既不属于旧版本也不属于新版本的混合 dist (前向路径的"清残留"只在正向跑)。现在解到
+    临时目录再整体切换, 回滚后的 dist 就是那个 tgz 的内容。
+18. **`engines` 改成 `>=22.5`**
+    代码用 Node 22+ 内置 `node:sqlite`, 但 `engines` 和 README 徽章都写 `>=20` ——
+    照着装的 Node 20 在 `getDb()` 直接启动失败。
+19. **生产镜像以 `node` 用户运行**
+    Dockerfile 末尾是 `USER root` (chainguard 基础镜像默认 root), 已改为 `USER node`
+    并把 `/app/data`、`/app/dist` 属主交给 node。
+20. **USER_GUIDE 的安装步骤原本跑不通**
+    它只 `curl` 一个 `docker-compose.yml` 就 `up -d`, 但 compose 是 `build: context: .` ——
+    目录里没有 Dockerfile 直接构建失败; 而且数据卷是 `external: true`, 文档从没让用户
+    `docker volume create` (README 里有, 两份文档互相矛盾)。已补上建卷步骤并顺延编号。
+21. **`/v1/embeddings` 不再把上游失败包装成 200**
+    `httpSend` 不会因 4xx/5xx 抛错, 原代码直接 `reply.send(body)` —— 上游 401/429/500
+    全部以 HTTP 200 返回给客户端, 而且不记 Key 健康, 失效的嵌入 Key 永远不会被摘掉。
+    现在: 透传上游状态码 + `recordUsage` 记 error + 交给 Key 健康逻辑冷却。
+22. **`models` 传数组不再毁掉渠道**
+    schema 允许 `string[]`, 而 `toStrBody` 会把数组 `JSON.stringify` 成 `'["gpt-4o"]'`
+    写进 CSV 列 → 该渠道 100% 路由失败, 界面却一切正常。现在创建/PATCH 都先拍平成 CSV。
+
+测试: `dataRetention.test.ts` 增至 6 例 (新增 models 数组拍平 + PATCH 清空)。全量 exit=0,
+前后端 tsc 干净, 部署健康。
+
 ### 全项目审计修复 · 第二轮: 数据留存 / 安全 / 接口 / 前端 (9 项)
 
 8. **删 Key 不再抹掉用量历史** (新增迁移 033)

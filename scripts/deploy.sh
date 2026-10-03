@@ -88,7 +88,18 @@ for i in $(seq 1 30); do
 done
 
 log "✗ 健康门禁失败 — 回滚到 $TS"
-docker exec -i "$CONTAINER" tar -C /app/dist -xzf - < "$BACKUP_TGZ"
+# 先把 dist 挪空再解包: tar 解包只覆盖"包内有的路径", 不会删除本次部署新增的文件,
+# 直接解包会留下一个既不属于旧版本也不属于新版本的混合 dist (且前向路径的清残留
+# 只在正向执行, 回滚不跑)。用临时目录解包再整体换, 保证回滚后的 dist 就是那个 tgz 的内容。
+docker exec "$CONTAINER" sh -c '
+  set -e
+  rm -rf /app/dist.rollback && mkdir -p /app/dist.rollback
+  cd /app/dist.rollback && tar -xzf -
+  cd /app
+  rm -rf /app/dist.old && mv /app/dist /app/dist.old
+  mv /app/dist.rollback /app/dist
+  rm -rf /app/dist.old
+' < "$BACKUP_TGZ"
 docker restart "$CONTAINER" >/dev/null
 log "已回滚并重启; 请检查 docker logs $CONTAINER"
 exit 1

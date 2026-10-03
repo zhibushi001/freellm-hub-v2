@@ -42,10 +42,11 @@ COPY --from=builder --chown=node:node /app/src/db/migrations ./dist/db/migration
 # COPY --from=builder --chown=node:node /app/src/public ./dist/public
 # React 前端构建产物
 COPY --from=client-builder --chown=node:node /app/client/dist ./dist/public/admin
-RUN mkdir -p /app/data
+# 数据目录归 node 用户 (compose 挂载 named volume 时由镜像内属主决定初始权限)
+RUN mkdir -p /app/data && chown -R node:node /app/data /app/dist
+USER node
 EXPOSE 3030
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3030/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
-USER root
 ENTRYPOINT ["/usr/bin/node"]
 CMD ["dist/server.js"]

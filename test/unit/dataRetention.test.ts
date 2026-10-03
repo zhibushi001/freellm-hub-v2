@@ -113,3 +113,29 @@ describe('渠道 PATCH 清空语义', () => {
     assert.equal(row.tag, null, 'tag 应被清空, 而不是字符串 "null"');
   });
 });
+
+/**
+ * models 传数组时要拍平成 CSV — 否则 String(['a','b']) 之前的 JSON.stringify 会把
+ * '["a","b"]' 写进 CSV 列, 渠道之后永不可路由。
+ */
+describe('models 数组拍平', () => {
+  it('PATCH: 数组 → CSV; null/空串 → NULL; 字符串原样', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hub-csv-'));
+    process.env.HUB_DATA_DIR = dataDir;
+    process.env.HUB_PORT = '0';
+    process.env.HUB_SKIP_SEED = process.env.HUB_SKIP_SEED ?? '1';
+    const { runMigrations } = await import('../../src/db/migrations/runner.js');
+    const db = new DatabaseSync(join(dataDir, 'hub.db'));
+    runMigrations(db);
+    const conn = await import('../../src/db/connection.js');
+    conn.setDbForTest(db);
+    const providers = await import('../../src/db/repos/providers.js');
+    const channels = await import('../../src/db/repos/channels.js');
+    const p = providers.createProvider({ name: 'p1', base_url: 'https://p1.test/v1' });
+    const id = channels.createChannel({ provider_id: p.id, multi_key_mode: 'sticky' } as any).id;
+    channels.updateChannel(id, { models: 'a,b' } as any);
+    assert.equal((db.prepare('SELECT models FROM channels WHERE id = ?').get(id) as any).models, 'a,b');
+    channels.updateChannel(id, { models: null } as any);
+    assert.equal((db.prepare('SELECT models FROM channels WHERE id = ?').get(id) as any).models, null);
+  });
+});

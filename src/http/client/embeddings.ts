@@ -9,6 +9,7 @@ import { listKeysByChannel } from '../../db/repos/keys.js';
 import { getDecryptedApiKey } from '../../db/repos/keys.js';
 import { httpSend } from '../../adapters/client.js';
 import { recordUsage } from '../../services/usageService.js';
+import { transitionKeyStatus } from '../../services/keyHealth.js';
 
 export async function registerEmbeddingsRoutes(app: FastifyInstance): Promise<void> {
   // 需要 Hub Key 鉴权 (用路由模式判断 — 原始 req.url 可被百分号编码绕过, 审计 F1)
@@ -88,16 +89,34 @@ export async function registerEmbeddingsRoutes(app: FastifyInstance): Promise<vo
       });
       
       // 记录使用
+      
+      // 上游失败不能一律回 200: httpSend 不会因为 4xx/5xx 抛错, 直接 send 等于把上游的
+      // 401/429/500 包装成 200 返回给客户端; 而且 Key 的健康/冷却完全没被记账 ——
+      // 一把失效的嵌入 Key 会一直吃 502 而不会被摘掉。
+      const ok = response.status >= 200 && response.status < 300;
+      let safeBody: any = null;
+      try { safeBody = JSON.parse(response.body); } catch { safeBody = null; }
+
       recordUsage({
         hub_key_id: hubKeyId,
         key_id: targetKey.id,
         provider_name: embeddingModel.provider_name,
         request_model: model,
         routed_model: model,
-        status: 'success',
+        status: ok ? 'success' : 'error',
+        error_code: ok ? null : response.status,
+        error_message: ok ? null : String(response.body ?? '').slice(0, 2000),
         stream: 0,
       });
-      
+      // 交给 Key 健康逻辑 (401/429/5xx 会冷却降权, 成功会清可恢复冷却)
+      transitionKeyStatus(targetKey.id, { status: response.status, body: safeBody });
+
+      if (!ok) {
+        const code = response.status >= 400 && response.status < 600 ? response.status : 502;
+        return reply.code(code).send(
+          safeBody ?? { error: { message: `上游返回 ${response.status}`, type: 'upstream_error' } },
+        );
+      }
       return reply.send(JSON.parse(response.body));
     } catch (e: any) {
       return reply.code(502).send({

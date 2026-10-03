@@ -52,7 +52,7 @@ cd ~/freellm-hub
 
 > 路径可以自己定，但要确保**这个目录在硬盘上**，不要放内存盘。
 
-### 2. 创建 docker-compose.yml
+### 2. 下载 docker-compose.yml
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zhibushi001/freellm-hub-v2/main/docker-compose.yml -o docker-compose.yml
@@ -60,7 +60,16 @@ curl -fsSL https://raw.githubusercontent.com/zhibushi001/freellm-hub-v2/main/doc
 
 如果命令下载失败（国内 GitHub 偶尔抽风），手动创建文件，内容见本仓库 [`docker-compose.yml`](../docker-compose.yml)。
 
-### 3. 启动
+### 3. 创建数据卷
+
+compose 里数据卷声明为 `external: true`（防止 Compose 悄悄创建一个项目带前缀的空卷，
+让数据看着"有"其实是空的），所以要显式创建一次：
+
+```bash
+docker volume create freellm-hub-data
+```
+
+### 4. 启动
 
 ```bash
 docker compose up -d
@@ -68,7 +77,7 @@ docker compose up -d
 
 等待 10-30 秒，看到 `Container freellm-hub Started` 即可。
 
-### 4. 检查状态
+### 5. 检查状态
 
 ```bash
 docker compose ps
@@ -139,22 +148,22 @@ http://你的飞牛IP:3030
 | **Base URL** | `http://你的飞牛IP:3030/v1` |
 | **API Key** | 刚才复制的 Hub Key（`fh_...`） |
 
-### 5.1 Cline (VSCode 插件)
+### 6.1 Cline (VSCode 插件)
 
 设置 → Cline → API Provider 选 **OpenAI Compatible**：
 - Base URL: `http://192.168.1.100:3030/v1`
 - API Key: `fh_a3f2e8b9c1...`
 - Model ID: 填 Hub 里有的模型，比如 `minimax/M3`
 
-### 5.2 DeepSeek Harness (本项目)
+### 6.2 DeepSeek Harness (本项目)
 
 见 DeepSeek Harness 文档，配置 OpenAI 兼容模式时同样填这两个。
 
-### 5.3 Hermes Agent
+### 6.3 Hermes Agent
 
 设置里找 Provider 配置，按 OpenAI 兼容填。
 
-### 5.4 ChatBox / ChatGPT-Next-Web 等
+### 6.4 ChatBox / ChatGPT-Next-Web 等
 
 设置 → 自定义 API 端点，填 Base URL + API Key。
 
@@ -166,7 +175,7 @@ http://你的飞牛IP:3030
 
 飞牛 OS 自带证书管理（**v0.1 阶段推荐先用 Cloudflare Tunnel，最简单**）：
 
-### 6.1 Cloudflare Tunnel（最简单，5 分钟搞定）
+### 7.1 Cloudflare Tunnel（最简单，5 分钟搞定）
 
 1. 注册 [Cloudflare](https://cloudflare.com)，把**你的域名**（必须托管在 Cloudflare）加进去
 2. 控制台 → Zero Trust → Networks → Tunnels → **Create a tunnel**
@@ -181,7 +190,7 @@ http://你的飞牛IP:3030
 
 访问 `https://hub.你的域名.com` 就能用，全自动 HTTPS。
 
-### 6.2 飞牛 OS 自带证书（进阶）
+### 7.2 飞牛 OS 自带证书（进阶）
 
 控制台 → 系统设置 → 安全 → 证书 → 申请 Let's Encrypt → 反向代理到 `127.0.0.1:3030`。
 
@@ -246,7 +255,7 @@ DB migration 启动时自动跑，不会丢数据。
 
 ## 九、高级用法
 
-### 9.1 多协议接入 (Phase 3)
+### 10.1 多协议接入 (Phase 3)
 
 Hub 同时支持 **3 种协议**，同一个 Hub Key 通吃:
 
@@ -263,7 +272,7 @@ export ANTHROPIC_API_KEY=<hub-key>
 # 工具调用 (Bash/Read/Edit) 自动透传
 ```
 
-### 9.2 Admin Web UI (Phase 4.A)
+### 10.2 Admin Web UI (Phase 4.A)
 
 打开 `http://your-hub:3030/admin/`，登录后看到 4 个标签:
 
@@ -272,7 +281,7 @@ export ANTHROPIC_API_KEY=<hub-key>
 - **Hub Keys**: 客户端用的 API Key, 可撤销/重新生成
 - **用量统计**: 7/14/30/90 天每日趋势 (请求/成功/错误/成功率/总 tokens/平均延迟)
 
-### 9.3 测速 / 健康评分 (Phase 4.B)
+### 10.3 测速 / 健康评分 (Phase 4.B)
 
 ```bash
 # 单 key 测速 (默认 5 samples)
@@ -298,7 +307,7 @@ curl -X POST http://your-hub:3030/api/admin/benchmark-all \
 
 **Score 算法**: success 60% + p95 latency 30% + avg latency 10%. 0-100.
 
-### 9.4 限流感知路由 (Phase 4.C)
+### 10.4 限流感知路由 (Phase 4.C)
 
 Hub 主动跟踪每个 (key, model) 的 in-flight 请求数。同一 key 已有 in-flight 时, **自动降权 1/(1+n)**, 让空闲 key 优先。
 

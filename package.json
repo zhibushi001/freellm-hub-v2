@@ -20,7 +20,7 @@
     "migrate": "tsx src/db/migrations/runner.ts"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.5.0"
   },
   "keywords": [
     "llm",
