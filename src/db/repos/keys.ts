@@ -55,6 +55,7 @@ export function listKeys(): KeyWithChannel[] {
   return db
     .prepare(
       `SELECT k.*, c.label as channel_label, c.enabled as channel_enabled,
+              c.model_mapping as channel_model_mapping,
               c.provider_id, p.name as provider_name,
               p.base_url, p.protocol, p.api_path, p.models_path
        FROM keys k

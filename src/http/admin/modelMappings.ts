@@ -2,6 +2,7 @@
  * Admin 模型映射管理路由
  */
 import type { FastifyInstance } from 'fastify';
+import { resolveMappingChain } from '../../services/modelAlias.js'
 import { getDb } from '../../db/connection.js';
 
 export async function registerModelMappingAdminRoutes(app: FastifyInstance): Promise<void> {
@@ -107,33 +108,16 @@ export async function registerModelMappingAdminRoutes(app: FastifyInstance): Pro
   // GET /api/admin/model-mappings/preview - 预览映射效果
   app.get('/api/admin/model-mappings/preview', { preHandler: requireAdmin }, async (req, reply) => {
     const target = (req.query as any).model || '';
-    const db = getDb();
-    
-    // 查找直接映射
-    const mapping = db.prepare('SELECT * FROM model_mappings WHERE from_model = ? AND enabled = 1').get(target) as any;
-    
-    if (!mapping) {
+    // 与请求路径共用同一份链解析 (环检测 / 跳数上限只有一处实现 —— 预览看到的
+    // 就是真实请求会走的链路, 不再有两套逻辑各说各话)
+    const resolved = resolveMappingChain(target);
+    if (!resolved) {
       return reply.send({ ok: true, original: target, mapped: null });
     }
-    
-    // 递归查找映射链
-    let current = mapping.to_model;
-    const chain = [target];
-    const visited = new Set([target]);
-    
-    while (true) {
-      if (visited.has(current)) {
-        // 循环引用
-        return reply.send({ ok: false, error: `映射循环: ${chain.join(' → ')}`, chain });
-      }
-      visited.add(current);
-      chain.push(current);
-      
-      const next = db.prepare('SELECT * FROM model_mappings WHERE from_model = ? AND enabled = 1').get(current) as any;
-      if (!next) break;
-      current = next.to_model;
+    if (resolved.cyclic) {
+      return reply.send({ ok: false, error: `映射循环: ${resolved.chain.join(' → ')}`, chain: resolved.chain });
     }
-    
-    return reply.send({ ok: true, original: target, mapped: current, chain });
+    return reply.send({ ok: true, original: target, mapped: resolved.model, chain: resolved.chain });
   });
+
 }

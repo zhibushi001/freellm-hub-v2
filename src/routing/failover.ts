@@ -31,6 +31,7 @@ import {selectCandidatePool, selectKeyPool, selectFallbackPool, applyMultiKeyMod
 import {getModelRouteByName} from '../db/repos/modelRoutes.js'
 import {resolveModel} from './resolver.js'
 import {listKeys} from '../db/repos/keys.js'
+import {resolveRequestAlias, applyChannelModelMapping} from '../services/modelAlias.js'
 import {setCooldown} from '../db/repos/cooldowns.js'
 import {isLocalEndpoint} from '../util/endpoints.js'
 
@@ -217,7 +218,40 @@ export function selectFirstCandidate(
   state: SkipState,
   opts: SelectCandidateOpts = {},
 ): { key: any; upstreamModel: string; pool: PoolResult } | { error: string; errorKind?: string } {
-  const r = resolveModel(requestModel, allKeys);
+  // 别名 / 虚拟模型解析 (审计修复: 这两套设施以前只有管理端 CRUD, 请求路径一个都没读 ——
+  // 界面配好看着对, 真实请求仍按原名路由; 按别名发请求必然 400 model_not_found)。
+  // 只对单段名生效: 带斜杠的是上游字面 ID (如 org/model), 改写会破坏字面路由语义。
+  const alias = resolveRequestAlias(requestModel);
+  if (alias?.source === 'virtual') {
+    const usable = alias.candidates.filter((c) => c.usable);
+    if (usable.length === 0) {
+      const why = alias.candidates.map((c) => c.unusableReason ?? `候选 ${c.upstreamModel}`).join('; ')
+        || '未配置任何候选';
+      return { error: `虚拟模型 '${requestModel}' 没有可用候选 (${why})`, errorKind: 'no_keys' };
+    }
+    const tried: string[] = [];
+    for (const cand of usable) {
+      if (state.keys.has(cand.keyId)) { tried.push(`${cand.upstreamModel}@key${cand.keyId}: 本请求已跳过`); continue; }
+      const key = allKeys.find((k: any) => k.id === cand.keyId);
+      if (!key) { tried.push(`${cand.upstreamModel}@key${cand.keyId}: Key 不存在`); continue; }
+      const pool = selectKeyPool(key.provider_id, cand.upstreamModel, key.channel_id);
+      const entry = [...pool.available, ...pool.unavailable].find((p) => p.key.id === cand.keyId);
+      if (!entry || !pool.available.find((p) => p.key.id === cand.keyId)) {
+        const un = pool.unavailable.find((p) => p.key.id === cand.keyId) as { reason?: string } | undefined;
+        tried.push(`${cand.upstreamModel}@key${cand.keyId}: ${un?.reason ?? '当前不可用'}`);
+        continue;
+      }
+      return {
+        key,
+        upstreamModel: cand.upstreamModel,
+        pool: { ...pool, available: [entry], unavailable: pool.unavailable.filter((p) => p.key.id !== cand.keyId) },
+      };
+    }
+    return { error: `虚拟模型 '${requestModel}' 的候选当前都不可用 (${tried.join('; ')})`, errorKind: 'no_keys' };
+  }
+  // 全局别名: 映射后的名字才进入路由
+  const effectiveModel = alias ? alias.model : requestModel;
+  const r = resolveModel(effectiveModel, allKeys);
   if ('error' in r) {
     return { error: r.error, errorKind: r.errorKind };
   }
@@ -246,7 +280,8 @@ export function selectFirstCandidate(
   // 两段或纯 model 名 - 用 candidate 池
   if (state.models.has(r.upstreamModel)) return { error: '该 Model 已被本请求跳过' };
   // F1: 模型路由作用域 — 配了 model_routes 的模型, failover 不得越出路由指定的通道
-  const routeScope = getRouteChannelScope(requestModel);
+  // 路由表配的是"对外名"; 若本名走了别名映射, 要用映射后的名字去查作用域
+  const routeScope = getRouteChannelScope(effectiveModel);
   // Phase 2 候选池 (精确 discovered)
   let pool = selectCandidatePool(r.upstreamModel);
   // 过滤已被 skip 的
@@ -285,7 +320,13 @@ export function selectFirstCandidate(
     preferredChannelId: opts.preferredChannelId ?? r.key?.channel_id ?? undefined,
     upstreamModel: r.upstreamModel,
   });
-  return { key: pool.available[0].key, upstreamModel: r.upstreamModel, pool };
+  // 渠道级 model_mapping: 本渠道把对外名翻译成上游真实名 (审计修复: 以前存着从不读)。
+  const chosen = pool.available[0];
+  const mapped = applyChannelModelMapping(chosen.key.channel_model_mapping, r.upstreamModel);
+  if (mapped) {
+    console.log(`[model-alias] 渠道级映射: ${r.upstreamModel} → ${mapped} (channel ${chosen.key.channel_id})`);
+  }
+  return { key: chosen.key, upstreamModel: mapped ?? r.upstreamModel, pool };
 }
 
 /**

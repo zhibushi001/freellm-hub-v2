@@ -50,12 +50,17 @@
 
 ## 审计后仍未完成项 (2026-10-03 全项目审计遗留)
 
-- [ ] **model_mapping / virtual_models 在请求路径未生效** (审计 P1, 潜在风险最高)
-      配了映射/虚拟模型, 请求却按原名路由 —— 界面看着配好了, 实际不生效, 甚至把可用模型配没了。
-      0 行配置, 修起来要动 resolver 主路径, 需要专门一轮 + 回归验证。
+- [x] ~~model_mapping / virtual_models 在请求路径未生效~~ (审计 P1) — **已修**, 见 CHANGELOG。
 - [ ] **PUT /api/admin/channels/:id 与 batch-edit 缺 schema 校验** (PATCH 有, 这两个没有)
 - [ ] **GitHub Actions CI** (公开仓库目前零 CI: PR 上不跑 tsc/测试)
 - [ ] **Docker 加日志轮转与内存上限**; 端口 0.0.0.0 的取舍写进文档
 - [ ] **模型测试接口无上限** (400 模型 × 15s ≈ 2.3 小时阻塞一个 HTTP 请求)
 - [ ] **基础镜像 tag 浮动** (chainguard 为保最新; 是否钉死待定)
+- [ ] **`deploy.sh` 只推 dist 不重建镜像** —— Dockerfile 的改动 (如非 root、依赖升级)
+      长期不生效, 直到有人手动 `docker compose build` 才暴露 (2026-10-03 为此崩溃循环)。
+      应让 deploy 检测 Dockerfile 是否比镜像新, 新则提示/自动重建。
+- [ ] **重建镜像需同步 chown 数据卷** —— 容器 UID 变化会让 `master.key`/`hub.db` EACCES。
+      应在 entrypoint 里做归属自检 (root 启动 → chown → 降权), 而不是靠人记得。
+- [ ] **镜像内 dist 与本地 dist 是两份** —— 镜像多阶段自建 dist, deploy 又用本地 dist
+      覆盖它, 两条构建路径可能漂移 (本次故障排查绕了一段)。
 - [ ] **3 条孤儿迁移台账行的人工核对** (已可见, 保留不删; 见 CHANGELOG 说明)
