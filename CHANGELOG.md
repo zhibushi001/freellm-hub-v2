@@ -5,7 +5,7 @@
 
 ## [开发中 / 迭代记录] - 2026-10-01 ~ 2026-10-03
 
-> 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6。
+> 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则。
 
 ### 路由修复 第二轮: R1-R6 (2026-10-03, F1/F2 后续)
 
@@ -48,6 +48,25 @@
   (即 `cooldowns.ts` 头部注释早已声明的规范名, 本次让代码对齐自己的契约)
 - **测试**: 新增 `test/unit/cooldownPolicy.test.ts` (2 例) —— 不可恢复封禁不被成功清除 /
   可恢复照常清; model 级不连累其他模型 / key 级全模型生效。全量单测 143 通过, `tsc --noEmit` 干净
+
+### 部署踩坑两则 (2026-10-03)
+
+- **"连不上"的真正原因**: R1-R6 写完且测试全绿, 但**既没提交也没部署**, 线上镜像
+  `freellm-hub-v2:latest` 仍是 3 天前的构建 (停在 38b651f)。代码是对的, 只是没上线 ——
+  所以症状表现为间歇性抽风而非彻底断, 排查时容易误判成上游或平台的问题
+- **构建静默失败**: `docker compose build hub` 实际失败, 却被
+  `... 2>&1 | tail -30 && echo "BUILD OK"` 盖掉了退出码并打印假成功。真实原因是默认
+  builder `mybuilder` (`docker-container` 驱动) 处于 `inactive`, 启动它要拉
+  `moby/buildkit:buildx-stable-1` 而本机网络超时。改用 `default` (`docker` 驱动,
+  daemon 侧已配 registry-mirrors) 构建成功。注意 `buildkitd.toml` 的 mirrors 配置
+  **对 `docker-container` 驱动不生效**, 指望它兜底会再次踩坑
+- **来源不明的并发写入**: 提交 R1-R6 之后, `cooldowns.ts` / `failover.ts` /
+  `keyHealth.ts` + 新增 `cooldownPolicy.test.ts` 于 03:29:04 被另一会话写入。
+  核验其完整、测试全绿、reason 名归一无孤儿引用后一并收尾提交 (b5a10a6),
+  但**提交他人半成品 / 漏提交 / 互相覆盖**的风险已记入 `docs/BACKLOG.md`
+- **回滚点**: 两次部署前的库快照留存在 `.deploy-backups/`
+  (`hub-pre-R1R6-20261003-032830.db` / `hub-pre-R7R8-20261003-033439.db`),
+  每次 `docker compose up -d --force-recreate` 前后各留一份
 
 ### 渠道模型挑选: 三处入口补全 (2026-10-03)
 

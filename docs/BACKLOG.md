@@ -8,6 +8,25 @@
 
 ## 待办
 
+- [ ] **修 buildx builder（构建会静默失败）** — 当前默认 builder `mybuilder` 是
+      `docker-container` 驱动且状态 `inactive`，启动它要从 Docker Hub 拉
+      `moby/buildkit:buildx-stable-1`，本机网络拉不动直接超时 → `docker compose build`
+      整个失败。`default`（`docker` 驱动，daemon 侧已配 registry-mirrors）是好的，
+      临时解法 `BUILDX_BUILDER=default docker compose build hub`。
+      待定：① 删掉坏掉的 `mybuilder` 改用 default ② 或给 container driver 配好
+      `buildkitd.toml` 镜像源 ③ 或预拉 buildkit 镜像
+      **附带**: 这次 `... 2>&1 | tail -30 && echo "BUILD OK"` 打印了假成功 ——
+      管道尾命令的退出码盖掉了 buildkit 的失败。约定：构建**不要**接 `&&`，
+      单独判 `BUILD_EXIT=$?`；`buildkitd.toml` 的 mirrors 对 `docker-container`
+      驱动不生效，别指望它兜底
+- [ ] **同仓库并发写入的提交纪律** — 2026-10-03 实测：我在提交 R1-R6 之后，
+      `cooldowns.ts` / `failover.ts` / `keyHealth.ts` + 新增 `cooldownPolicy.test.ts`
+      在 03:29:04 被**另一个会话**写入（我全程没碰这四个文件），内容是合理的续作
+      （R7/R8），但来源不明、时机撞车
+      风险：① 提交到自己不知道来源的半成品 ② 漏提交别人已写好的续作 ③ 两边同时改
+      同一文件互相覆盖
+      待定做法：提交前先 `git status` 看有没有"我没改过却变了"的文件；有就先查
+      mtime + 问清来源再决定；长期看可给每个会话一个 worktree / 分支
 - [ ] **配置大扫除** — 清理历史遗留配置项与废弃字段
 - [ ] **全局限流 + `@fastify/rate-limit`** — 入口层按 IP/Key 限流，与现有按渠道冷却互补
 - [ ] **统一错误信封** — 后端错误响应统一 `{ok:false, error, code}` 结构
