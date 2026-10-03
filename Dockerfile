@@ -44,9 +44,13 @@ COPY --from=builder --chown=node:node /app/src/db/migrations ./dist/db/migration
 COPY --from=client-builder --chown=node:node /app/client/dist ./dist/public/admin
 # 数据目录归 node 用户 (compose 挂载 named volume 时由镜像内属主决定初始权限)
 RUN mkdir -p /app/data && chown -R node:node /app/data /app/dist
-USER node
+# entrypoint 必须是 root 属主: 它要校正数据卷归属后降权 (见文件内注释)
+COPY --chown=root:root scripts/container-entrypoint.mjs /app/entrypoint.mjs
+# root 启动**只是为了**自动修数据卷归属 (容器 UID 变化后 master.key/hub.db 会 EACCES,
+# 2026-10-03 为此崩溃循环); entrypoint 修完立即降权到 node —— 服务进程永远不是 root。
+USER root
 EXPOSE 3030
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3030/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
-ENTRYPOINT ["/usr/bin/node"]
+ENTRYPOINT ["/usr/bin/node", "/app/entrypoint.mjs"]
 CMD ["dist/server.js"]

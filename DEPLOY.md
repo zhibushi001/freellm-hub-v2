@@ -195,6 +195,15 @@ hub.example.com {
 
 ## 升级
 
+**推荐用一键部署** (本地构建 → 孤儿校验 → 构建镜像 → 应用 → 健康门禁, 失败自动回滚):
+
+```bash
+git pull && ./scripts/deploy.sh
+# 门禁失败会自动打回上一镜像; 成功输出里会打印手动回滚命令 (rollback-<ts> tag)
+```
+
+下面的手动流程等价, 适合需要逐条控制时使用:
+
 ```bash
 # 1. 获取新版源码并构建镜像
 git pull && docker build -t freellm-hub-v2:v2.0.1 .
@@ -223,6 +232,14 @@ docker logs freellm-hub | tail -30
 **首次启动会自动执行数据库迁移** (26 个 migration 文件)。从旧版本升级会自动跳过已执行的迁移。
 
 ### 回滚
+
+一键回滚 (deploy.sh 部署时自动打了 `rollback-<ts>` 镜像 tag, 保留最近 2 个):
+
+```bash
+docker tag freellm-hub-v2:rollback-<ts> freellm-hub-v2:latest && docker compose up -d
+```
+
+手动回滚 (指定历史版本镜像):
 
 ```bash
 docker stop freellm-hub

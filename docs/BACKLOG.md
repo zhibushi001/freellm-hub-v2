@@ -56,11 +56,11 @@
 - [ ] **Docker 加日志轮转与内存上限**; 端口 0.0.0.0 的取舍写进文档
 - [ ] **模型测试接口无上限** (400 模型 × 15s ≈ 2.3 小时阻塞一个 HTTP 请求)
 - [ ] **基础镜像 tag 浮动** (chainguard 为保最新; 是否钉死待定)
-- [ ] **`deploy.sh` 只推 dist 不重建镜像** —— Dockerfile 的改动 (如非 root、依赖升级)
-      长期不生效, 直到有人手动 `docker compose build` 才暴露 (2026-10-03 为此崩溃循环)。
-      应让 deploy 检测 Dockerfile 是否比镜像新, 新则提示/自动重建。
-- [ ] **重建镜像需同步 chown 数据卷** —— 容器 UID 变化会让 `master.key`/`hub.db` EACCES。
-      应在 entrypoint 里做归属自检 (root 启动 → chown → 降权), 而不是靠人记得。
-- [ ] **镜像内 dist 与本地 dist 是两份** —— 镜像多阶段自建 dist, deploy 又用本地 dist
-      覆盖它, 两条构建路径可能漂移 (本次故障排查绕了一段)。
+- [x] ~~`deploy.sh` 只推 dist 不重建镜像~~ — **已修**: 新流程每次部署都 `docker compose build`,
+      Dockerfile/依赖/源码改动当次生效。
+- [x] ~~重建镜像需同步 chown 数据卷~~ — **已修**: `scripts/container-entrypoint.mjs`
+      root 启动 → 自动校正 /app/data 归属 → 立即降权到 node (解析不出用户则拒绝启动)。
+      实测复现 master.key 被改回 root → 重启 1s 自愈。
+- [x] ~~镜像内 dist 与本地 dist 两份构建路径~~ — **已修**: 运行时 dist 只有镜像里这一份,
+      deploy 不再向容器推文件 (006 孤儿残留那类问题从结构上消失)。
 - [ ] **3 条孤儿迁移台账行的人工核对** (已可见, 保留不删; 见 CHANGELOG 说明)
