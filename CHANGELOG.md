@@ -7,6 +7,36 @@
 
 > 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则 + 台账孤儿行清理 + 部署链路三缺口补齐。
 
+### 每日额度限流失效 + 误导性 no_keys 事故修复 (2026-10-03)
+
+> 用户报错: 调 `stealth/space-bunny-alpha` 返回 "已配置，但没有可用的 Key (Key 全被禁用或失败)"。
+> 现场: OpenRouter 免费模型每日额度用尽 (`free-models-per-day-stealth`, 当日已撞 17 次),
+> 唯一 Key 连续 6 次失败被封禁。但根子是**冷却没拦住**和**错误没说实话**两件事。
+
+- **核心 bug: 冷却 upsert 不重置 `cleared_at`** (`src/db/repos/cooldowns.ts`):
+  被 clear 过的冷却行再次启用时保留旧标记, 而所有读取都过 `cleared_at IS NULL` →
+  **冷却永久隐身、静默失效**。事故链: 每日额度 429 后冷却不生效 → 客户端 1 小时猛打
+  17 次 → 连续失败把唯一 Key 打进 30 分钟封禁 → 之后每次请求 no_keys。
+  upsert 冲突分支现在同时 `cleared_at = NULL, cleared_reason = NULL`。
+- **迁移 `038_repair_stale_cooldowns.sql`**: 打捞存量脏行 (`cleared_at < started_at` =
+  "先被清除、后又重新启用却没清标记", 正常行必然相反), 存量隐身冷却全部恢复可见。
+- **每日额度类 429 单独处理** (`keyHealth.ts` / `failover.ts`): 认出 `free-models-per-day`
+  / `daily` 这类**按天**限流, 冷却到下一个 UTC 午夜 (+2 分钟缓冲, 限制 [10min, 24h])
+  而不是 90 秒阶梯空转 —— 90 秒档只会反复重试直到把 Key 打成 failed。`recoverable=1`,
+  额度重置后首次成功调用立即解除。
+- **临时不可用不再谎报** (`resolver.ts` / `failover.ts` / `chatService.ts`): 逐 Key 诊断
+  真实原因 —— 封禁至何时 / 每日额度冷却至何时 / 熔断 / 已禁用, 新 errorKind
+  `keys_cooling` → **503 + `Retry-After` 头 + 错误体带恢复时间 (北京时间)**;
+  只有真·永久禁用才报 `no_keys`。顺带统一历史矛盾: 同一故障非流式 404 vs 流式 503,
+  现在都是 503 (服务端资源暂不可用), 模型未配置仍 400。
+- **流式路径不再误拒别名/虚拟模型** (`chatService.ts`): chatStream 先用 `resolveModel`
+  按 `channels.models` 证据判"模型未配置"→ 400, 但别名/虚拟模型根本不在 CSV 里 ——
+  流式请求会在到达别名解析前被打死 (非流式正常)。识别到别名直接放行, 真正选择仍由
+  `selectFirstCandidate` 内的 alias 层统一完成。
+- **测试**: `test/unit/cooldownRepair.test.ts` 11 例 —— 冷却重启可见性、038 修复、
+  封禁/每日额度/跨模型隔离/永久禁用四类诊断、每日 vs 普通 429 分流、流式别名放行、
+  503/400 语义与 Retry-After 透传。
+
 ### 部署链路: 三处缺口补齐 (2026-10-03, ece59c1)
 
 > 起因是今天两次"以为改了、其实没生效"。共同根子是**代码和运行中的系统可以悄悄分叉

@@ -16,6 +16,7 @@ import {
 import { httpStream } from '../adapters/client.js';
 import { getDecryptedApiKey, recordKeyUsage } from '../db/repos/keys.js';
 import { resolveModel } from '../routing/resolver.js';
+import { resolveRequestAlias } from './modelAlias.js';
 import { listKeys } from '../db/repos/keys.js';
 import { transitionKeyStatus } from './keyHealth.js';
 import { recordUsage } from './usageService.js';
@@ -102,10 +103,15 @@ export async function chatCompletion(
   if (blocked) return { error: blocked.error, status: blocked.status };
   const r = await chatWithFailover(req, hubKeyId);
   if (!r.ok) {
+    const details: any = { ...r.error };
+    // classified 层是 ms; 出口统一成秒 (路由直接写 Retry-After 头)
+    if (details.retryAfterMs && !details.retryAfterSec) {
+      details.retryAfterSec = Math.ceil(details.retryAfterMs / 1000);
+    }
     return {
       error: errorMessage(r.error),
       status: errorStatus(r.error),
-      details: r.error,
+      details,
       attempts: r.attempts.length,
     };
   }
@@ -130,7 +136,9 @@ function errorMessage(e: any): string {
     case 'client_error': return e.message;
     case 'auth_invalid': return '所有 Key 都 401 失败';
     case 'quota_exhausted': return '所有 Key 都额度耗尽';
-    case 'rate_limited': return '所有 Key 都触发速率限制';
+    case 'rate_limited':
+      // 带上上游原话 (如 free-models-per-day) —— 只报"都触发限速"等于没说
+      return '所有 Key 都触发速率限制' + (e.message ? ` (${String(e.message).slice(0, 200)})` : '');
     case 'upstream_error': return '上游持续错误: ' + e.message;
     default: return '未知错误';
   }
@@ -140,8 +148,10 @@ function errorStatus(e: any): number {
   switch (e.kind) {
     case 'client_error': return e.status;
     case 'no_candidates':
-      // P1-4: 区分 model_not_found (400 客户端错误) vs no_keys (404 资源不可用)
-      return e.errorKind === 'model_not_found' ? 400 : 404;
+      // P1-4: model_not_found = 400 (客户端模型名错)
+      // no_keys / keys_cooling = 503 (服务端资源暂不可用 —— 与流式路径统一,
+      // 2026-10-03 之前非流式 404 vs 流式 503, 同一故障两个码)
+      return e.errorKind === 'model_not_found' ? 400 : 503;
     case 'budget_exhausted': return 504;
     case 'auth_invalid': return 502;
     case 'quota_exhausted': return 502;
@@ -160,15 +170,18 @@ function errorStatus(e: any): number {
 export async function chatStream(
   req: ChatRequest,
   hubKeyId: number | null,
-): Promise<ChatStreamHandle | { error: string; status: number }> {
+): Promise<ChatStreamHandle | { error: string; status: number; retryAfterSec?: number }> {
   const blockedB = guardInput(req);
   if (blockedB) return blockedB;
   const allKeys = listKeys();
-  const resolved = resolveModel(req.model, allKeys);
-  if ('error' in resolved) {
+  // 别名/虚拟模型不在 channels.models 证据里, 不能在这里用 resolveModel 提前判
+  // "模型未配置" —— 真实解析在 selectFirstCandidate 内统一做 (alias 层), 这里直接放行。
+  const alias = resolveRequestAlias(req.model);
+  const resolved = alias ? null : resolveModel(req.model, allKeys);
+  if (resolved && 'error' in resolved) {
     // 区分: 模型名不存在 (400 客户端错误) vs 模型存在但无可用 Key (503 资源不可用)
     const status = resolved.errorKind === 'model_not_found' ? 400 : 503;
-    return { error: resolved.error, status };
+    return { error: resolved.error, status, retryAfterSec: resolved.retryAfterSec };
   }
 
   const start = Date.now();
@@ -178,12 +191,13 @@ export async function chatStream(
   const selectOpts = {
     hubKeyId,
     // 三段式是用户显式 pin (selectFirstCandidate 内部处理), 其余按 resolver 选定的渠道优先
-    preferredChannelId: parts.length === 3 ? undefined : resolved.key.channel_id,
+    preferredChannelId: parts.length === 3 || !resolved ? undefined : resolved.key.channel_id,
   };
   let lastCls: ClassifiedError | null = null;
-  const failWith = (cls: ClassifiedError): { error: string; status: number } => {
+  const failWith = (cls: ClassifiedError): { error: string; status: number; retryAfterSec?: number } => {
     const top = toTopLevelError(cls);
-    return { error: errorMessage(top), status: errorStatus(top) };
+    const raMs = (top as { retryAfterMs?: number }).retryAfterMs;
+    return { error: errorMessage(top), status: errorStatus(top), retryAfterSec: raMs ? Math.ceil(raMs / 1000) : undefined };
   };
 
   for (let i = 0; i < config.maxCandidates; i++) {
@@ -196,7 +210,7 @@ export async function chatStream(
     if ('error' in pick) {
       if (lastCls) return failWith(lastCls);
       const status = pick.errorKind === 'model_not_found' ? 400 : 503;
-      return { error: pick.error, status };
+      return { error: pick.error, status, retryAfterSec: pick.retryAfterSec };
     }
     const key = pick.key;
     const upstreamModel = pick.upstreamModel;

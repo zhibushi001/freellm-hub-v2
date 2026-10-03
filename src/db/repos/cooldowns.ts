@@ -48,7 +48,12 @@ export function setCooldown(input: {
          expires_at = MAX(cooldowns.expires_at, excluded.expires_at),
          recoverable = MIN(cooldowns.recoverable, excluded.recoverable),
          started_at = excluded.started_at,
-         source = excluded.source`,
+         source = excluded.source,
+         -- 重新启用必须清掉"已清除"标记: 读取方一律过 cleared_at IS NULL,
+         -- 不重置的话这条冷却永远隐身 (2026-10-03 事故: OpenRouter 每日额度冷却失效,
+         -- 客户端 1 小时打了 17 次, 唯一 Key 被连续失败封禁)。
+         cleared_at = NULL,
+         cleared_reason = NULL`,
     )
     .run(
       input.keyId,

@@ -30,7 +30,7 @@
  */
 import { updateKey, getKey } from '../db/repos/keys.js';
 import {
-  setCooldown, isKeyOnCooldown, clearCooldown, clearCooldownIfRecoverable, getAllActiveCooldownsForKey,
+  setCooldown, clearCooldown, clearCooldownIfRecoverable,
   recordCooldownHit, clearCooldownHits, getEscalationLadderDuration,
 } from '../db/repos/cooldowns.js';
 import { logger } from '../util/logger.js';
@@ -53,6 +53,26 @@ export interface ProbeResult {
 }
 
 // Cooldown 时长常量 (ms)
+/**
+ * 上游消息是否属于"每日额度"类限流 (如 OpenRouter `free-models-per-day-*`)。
+ * 这类 429 不是瞬时限速 —— 90s 阶梯冷却只会空转重试, 一直撞到把 Key 打成 failed。
+ */
+export function isDailyQuotaMessage(msg: unknown): boolean {
+  const text = typeof msg === 'string' ? msg : JSON.stringify(msg ?? '');
+  return /per[-_ ]?day|daily|every day|每日/i.test(text);
+}
+
+/**
+ * 每日额度冷却时长: 冷却到下一个 UTC 午夜 (per-day 限额的重置点) + 2 分钟缓冲,
+ * 限制在 [10 分钟, 24 小时] —— 早于重置点没意义, 晚太多会白白多锁。
+ */
+export function dailyQuotaCooldownMs(now = Date.now()): number {
+  const DAY = 86_400_000;
+  const nextUtcMidnight = Math.floor(now / DAY + 1) * DAY;
+  const ms = nextUtcMidnight - now + 120_000;
+  return Math.min(Math.max(ms, 10 * 60_000), 24 * 3_600_000);
+}
+
 export const COOLDOWN_DURATIONS = {
   RATE_LIMIT: 90 * 1000,            // 90s (heuristic, 可探测恢复)
   TRANSIENT_ERROR: 30 * 1000,        // 30s
@@ -127,18 +147,25 @@ export function transitionKeyStatus(
     return;
   }
 
-  // 429 = 速率限制, 90s 短冷却, heuristic (可探测恢复)
+  // 429 = 速率限制。区分两种:
+  //  - 每日额度 (free-models-per-day / daily): 冷却到下一个 UTC 午夜, 90s 只会空转
+  //  - 瞬时限速: 90s heuristic (可探测恢复)
   if (result.status === 429) {
+    const daily = isDailyQuotaMessage(result.body);
     setCooldown({
       keyId,
       reason: 'rate_limit',
       upstreamModel: result.upstreamModel ?? null,
-      durationMs: COOLDOWN_DURATIONS.RATE_LIMIT,
+      durationMs: daily ? dailyQuotaCooldownMs() : COOLDOWN_DURATIONS.RATE_LIMIT,
       recoverable: true,
-      source: 'heuristic',
+      source: daily ? 'authoritative' : 'heuristic',
     });
-    updateKey(keyId, { status: 'cooldown', status_reason: '429 rate_limit' });
-    logger.warn({ keyId, model: result.upstreamModel }, 'Key 90s cooldown: 429');
+    updateKey(keyId, {
+      status: 'cooldown',
+      status_reason: daily ? '429 每日额度用尽 (冷却至 UTC 午夜)' : '429 rate_limit',
+    });
+    logger.warn({ keyId, model: result.upstreamModel, daily },
+      daily ? 'Key 冷却至 UTC 午夜: 上游每日额度用尽' : 'Key 90s cooldown: 429');
     return;
   }
 

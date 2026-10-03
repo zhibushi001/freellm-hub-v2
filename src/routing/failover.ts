@@ -21,8 +21,8 @@
  */
 import {httpSend} from '../adapters/client.js'
 import {getDecryptedApiKey, recordKeyUsage} from '../db/repos/keys.js'
-import {recordOutcome as recordCircuitOutcome, claimProbeSlot} from '../db/repos/circuitBreaker.js'
-import {transitionKeyStatus, getEscalationLadder, recordCooldownHit, clearCooldownHits} from '../services/keyHealth.js'
+import {recordOutcome as recordCircuitOutcome} from '../db/repos/circuitBreaker.js'
+import {transitionKeyStatus, getEscalationLadder, recordCooldownHit, clearCooldownHits, isDailyQuotaMessage, dailyQuotaCooldownMs} from '../services/keyHealth.js'
 import {recordUsage} from '../services/usageService.js'
 import {parseJsonSafe} from '../util/json.js'
 import {inflightStart, inflightEnd, inflightWeightPenalty} from '../services/inflightTracker.js'
@@ -73,9 +73,9 @@ export type ChatFailureReason =
   | { kind: 'client_error'; status: number; body: any; message: string }  // 4xx (非 401/402/429/403/404/413) - 立即返回
   | { kind: 'auth_invalid' }
   | { kind: 'quota_exhausted' }
-  | { kind: 'rate_limited' }
+  | { kind: 'rate_limited'; message?: string; retryAfterMs?: number }  // 保留上游原因 + 重试时机 (事故: 曾把每日额度限流报成干巴巴一句)
   | { kind: 'upstream_error'; message: string }
-  | { kind: 'no_candidates'; reason?: string; errorKind?: 'model_not_found' | 'no_keys' }
+  | { kind: 'no_candidates'; reason?: string; errorKind?: 'model_not_found' | 'no_keys' | 'keys_cooling'; retryAfterSec?: number }
   | { kind: 'budget_exhausted' };
 
 export type ChatOutcome =
@@ -217,7 +217,7 @@ export function selectFirstCandidate(
   allKeys: any[],
   state: SkipState,
   opts: SelectCandidateOpts = {},
-): { key: any; upstreamModel: string; pool: PoolResult } | { error: string; errorKind?: string } {
+): { key: any; upstreamModel: string; pool: PoolResult } | { error: string; errorKind?: string; retryAfterSec?: number } {
   // 别名 / 虚拟模型解析 (审计修复: 这两套设施以前只有管理端 CRUD, 请求路径一个都没读 ——
   // 界面配好看着对, 真实请求仍按原名路由; 按别名发请求必然 400 model_not_found)。
   // 只对单段名生效: 带斜杠的是上游字面 ID (如 org/model), 改写会破坏字面路由语义。
@@ -247,13 +247,13 @@ export function selectFirstCandidate(
         pool: { ...pool, available: [entry], unavailable: pool.unavailable.filter((p) => p.key.id !== cand.keyId) },
       };
     }
-    return { error: `虚拟模型 '${requestModel}' 的候选当前都不可用 (${tried.join('; ')})`, errorKind: 'no_keys' };
+    return { error: `虚拟模型 '${requestModel}' 的候选当前都不可用 (${tried.join('; ')})`, errorKind: 'keys_cooling' };
   }
   // 全局别名: 映射后的名字才进入路由
   const effectiveModel = alias ? alias.model : requestModel;
   const r = resolveModel(effectiveModel, allKeys);
   if ('error' in r) {
-    return { error: r.error, errorKind: r.errorKind };
+    return { error: r.error, errorKind: r.errorKind, retryAfterSec: r.retryAfterSec };
   }
 
   // 强制指定 (三段 provider/key/model) - 跳过 candidate 池 (用户显式 pin, 不走 multi_key_mode)
@@ -305,7 +305,18 @@ export function selectFirstCandidate(
     if (pool.unavailable.length === 0) {
       return { error: `没有通道配置模型 '${r.upstreamModel}'。请检查模型列表或在「渠道」中添加该模型`, errorKind: 'model_not_found' };
     }
-    return { error: pool.unavailable[0]?.reason ?? '没有可用的 candidate' };
+    // 走到这里 = resolver 认为这个模型有 Key, 但候选池里全被"临时"拦下 (冷却/封禁/熔断)。
+    // 这是**暂时**不可用 → keys_cooling (503), 不是"Key 全被禁用"那种配置问题。
+    const REASON_LABEL: Record<string, string> = {
+      circuit_open: '熔断中', disabled: '已禁用', quota_exhausted: '额度冷却',
+      rate_limit: '限流冷却', transient_error: '临时故障冷却', unavailable: '暂不可用',
+    };
+    const uniq = [...new Set(pool.unavailable.map(u => u.reason))];
+    const pretty = uniq.slice(0, 3).map(rsn => {
+      const base = rsn.replace(/\(.*\)$/, '');   // rate_limit(model) → rate_limit
+      return REASON_LABEL[base] ? `${REASON_LABEL[base]}(${rsn})` : rsn;
+    }).join('; ');
+    return { error: `模型 '${r.upstreamModel}' 暂时没有可用 Key (${pretty})`, errorKind: 'keys_cooling' };
   }
   // Phase 4.C: 按 in-flight penalty 降序排序 — 空闲 key (权重 1.0) 优先, 在途多的 (1/(1+n)) 排后
   // 修复: 之前写成升序, 在途多的反而排第一 → 并发请求全堆到同一个忙 key
@@ -346,11 +357,12 @@ export async function chatWithFailover(
   // 第一次选
   let first = selectFirstCandidate(req.model, allKeys, state, { hubKeyId });
   if ('error' in first) {
-    const ek = (first.errorKind === 'model_not_found' || first.errorKind === 'no_keys')
+    const ek = (first.errorKind === 'model_not_found' || first.errorKind === 'no_keys'
+      || first.errorKind === 'keys_cooling')
       ? first.errorKind : undefined;
     return {
       ok: false,
-      error: { kind: 'no_candidates', reason: first.error, errorKind: ek },
+      error: { kind: 'no_candidates', reason: first.error, errorKind: ek, retryAfterSec: (first as { retryAfterSec?: number }).retryAfterSec },
       attempts,
     };
   }
@@ -414,7 +426,11 @@ export function toTopLevelError(cls: ClassifiedError): ChatFailureReason {
   switch (cls.kind) {
     case 'key_auth': return { kind: 'auth_invalid' };
     case 'key_quota': return { kind: 'quota_exhausted' };
-    case 'rate_limit': return { kind: 'rate_limited' };
+    case 'rate_limit': return {
+      kind: 'rate_limited',
+      message: cls.message,
+      retryAfterMs: cls.retryAfterMs,
+    };
     default: return { kind: 'upstream_error', message: cls.message };
   }
 }
@@ -495,6 +511,19 @@ export function handleFailure(
     case 'rate_limit': {
       // 429: skipKey + heuristic (90s) 或 authoritative (Retry-After)
       state.keys.add(k);
+      // 每日额度 (free-models-per-day 等): 冷却到 UTC 午夜重置点。
+      // recoverable=1 —— 重置后第一次成功调用立即解除, 不用傻等满时长。
+      if (isDailyQuotaMessage(cls.message)) {
+        setCooldown({
+          keyId: k,
+          reason: 'rate_limit',
+          upstreamModel,
+          durationMs: dailyQuotaCooldownMs(),
+          recoverable: true,
+          source: 'authoritative',
+        });
+        return 'continue';
+      }
       const retryAfter = cls.retryAfterMs ?? 0;
       const heuristicMs = 90_000;
       if (retryAfter > heuristicMs) {

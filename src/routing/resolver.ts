@@ -11,10 +11,12 @@ import { getModelRouteByName } from '../db/repos/modelRoutes.js';
 import { getChannel } from '../db/repos/channels.js';
 import { getDiscoveredModelKeys } from '../db/repos/discoveredModels.js';
 import { getProviderByName } from '../db/repos/providers.js';
+import { getAllActiveCooldownsForKey } from '../db/repos/cooldowns.js';
+import { getCircuitState } from '../db/repos/circuitBreaker.js';
 
 export type ResolveResult =
   | { key: KeyWithChannel; upstreamModel: string }
-  | { error: string; errorKind?: 'model_not_found' | 'no_keys' };
+  | { error: string; errorKind?: 'model_not_found' | 'no_keys' | 'keys_cooling'; retryAfterSec?: number };
 
 /**
  * 解析 model 字段 → (key, upstreamModel) 对
@@ -126,8 +128,8 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
   const upstream = parts.length === 1 ? parts[0] : requestModel;
   const literalSlash = parts.length > 1;
   const discoveredKeyIds = literalSlash ? new Set(getDiscoveredModelKeys(upstream)) : new Set<number>();
-  const candidates = allKeys.filter(k => {
-    if (k.enabled !== 1 || (k.channel_enabled ?? 1) !== 1 || k.status === 'failed') return false;
+  // 证据集 (这个模型谁跑得了) —— 与可用性分开, 空结果时才能诊断"到底为什么没有 Key"
+  const evidence = allKeys.filter(k => {
     if (!isKeyEligibleForModel(k, upstream)) return false;
     if (!literalSlash) return true;
     // 两种证据都算"这个通道能跑这个模型":
@@ -139,6 +141,9 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
     const models = (ch.models ?? '').split(',').map(s => s.trim()).filter(Boolean);
     return models.length === 0 || models.includes(upstream);
   });
+  const candidates = evidence.filter(
+    k => k.enabled === 1 && (k.channel_enabled ?? 1) === 1 && k.status !== 'failed',
+  );
   if (candidates.length === 0) {
     // 区分: 模型名在系统中是否存在 vs 仅是当前没可用 Key
     // 注: channels.models 是 CSV 字符串 (逗号分隔), 不是 JSON
@@ -151,10 +156,79 @@ export function resolveModel(requestModel: string, allKeys: KeyWithChannel[]): R
     if (!knownUpstreamModels.has(upstream)) {
       return { error: `模型 '${upstream}' 未配置。请检查模型列表或在「渠道」中添加该模型`, errorKind: 'model_not_found' };
     }
+
+    // 逐 Key 诊断真实原因: "全被禁用或失败"是误导 —— 封禁/冷却/熔断都是**暂时**的,
+    // 必须告诉调用方真实原因和恢复时间 (keys_cooling → 503), 而不是当配置错误 (404)。
+    const temp: string[] = [];   // 暂时不可用 (会自动恢复)
+    const perm: string[] = [];   // 永久不可用 (需要管理员改配置)
+    let earliest = Infinity;
+    const now = Date.now();
+    const FAILED_LOCK_MS = 30 * 60 * 1000;   // 与 keys.ts recoverExpiredFailedKeys 的锁定期一致
+    for (const k of evidence) {
+      const label = `Key#${k.id}${k.label ? `「${k.label}」` : ''}`;
+      if (k.enabled !== 1) { perm.push(`${label} 已禁用`); continue; }
+      if ((k.channel_enabled ?? 1) !== 1) { perm.push(`${label} 所在通道已禁用`); continue; }
+      if (k.status === 'failed') {
+        const until = (k.status_since ?? 0) + FAILED_LOCK_MS;
+        if (until > now) {
+          temp.push(`${label} 连续失败封禁至 ${fmtRetryTime(until)}`);
+          earliest = Math.min(earliest, until);
+        } else {
+          temp.push(`${label} 锁定期已到，恢复探测中`);
+        }
+      }
+      // 冷却 = 底层原因 (例如上游每日额度用尽), 即使 Key 正被封禁也一并说出来
+      const cds = getAllActiveCooldownsForKey(k.id)
+        .filter(c => !c.upstream_model || c.upstream_model === upstream)   // 只看 key级 或 本模型
+        .sort((a, b) => b.expires_at - a.expires_at);
+      const cd = cds[0];
+      if (cd && cd.expires_at > now) {
+        const isDaily = cd.reason === 'rate_limit' && cd.expires_at - now > 6 * 3600_000;
+        const desc = isDaily ? '每日额度限制' : cd.reason;
+        temp.push(`${label} ${desc} 冷却至 ${fmtRetryTime(cd.expires_at)}`);
+        earliest = Math.min(earliest, cd.expires_at);
+        continue;
+      }
+      if (k.status !== 'failed') {
+        const cs = getCircuitState(k.id, upstream);
+        if (cs && cs.state === 'open') {
+          const until = cs.retry_at ?? now;
+          if (until > now) {
+            temp.push(`${label} 熔断中，${fmtRetryTime(until)} 自动探测`);
+            earliest = Math.min(earliest, until);
+          } else {
+            temp.push(`${label} 熔断半开，等待探测`);
+          }
+        }
+      }
+    }
+    if (temp.length > 0) {
+      const retryAfterSec = earliest < Infinity ? Math.max(60, Math.ceil((earliest - now) / 1000)) : 300;
+      return {
+        error: `模型 '${upstream}' 暂时没有可用 Key: ${[...temp, ...perm].join('; ')}`,
+        errorKind: 'keys_cooling',
+        retryAfterSec,
+      };
+    }
+    if (perm.length > 0) {
+      return { error: `模型 '${upstream}' 已配置，但没有可用的 Key (${perm.join('; ')})`, errorKind: 'no_keys' };
+    }
     return { error: `模型 '${upstream}' 已配置，但没有可用的 Key (Key 全被禁用或失败)`, errorKind: 'no_keys' };
   }
   // Phase 1: 简单选第一个
   return { key: candidates[0], upstreamModel: upstream };
+}
+
+/** 恢复时间展示: 北京时间 MM/DD HH:mm (客户端据此决定何时重试) */
+function fmtRetryTime(t: number): string {
+  try {
+    return new Date(t).toLocaleString('zh-CN', {
+      timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+  } catch {
+    return new Date(t).toISOString().slice(5, 16).replace('T', ' ');
+  }
 }
 
 function slugify(s: string): string {

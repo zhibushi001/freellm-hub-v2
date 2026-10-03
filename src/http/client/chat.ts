@@ -113,6 +113,7 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
     if (body.stream) {
       const result = await chatStream(body, hubKeyId);
       if ('error' in result) {
+        if (result.retryAfterSec) reply.header('retry-after', String(result.retryAfterSec));
         return reply.code(result.status).send({ error: { message: result.error, type: 'gateway_error' } });
       }
       // 流式响应: 把上游 SSE 直接转发给客户端
@@ -153,6 +154,8 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
     const result = await chatCompletion(body, hubKeyId);
     if ('error' in result) {
       const detailKind = (result.details as any)?.errorKind;
+      const retryAfter = (result.details as any)?.retryAfterSec;
+      if (retryAfter) reply.header('retry-after', String(retryAfter));
       // P1-4: 把 errorKind 透传给客户端, 让客户端能做更精准的处理
       return reply.code(result.status).send({
         error: {
