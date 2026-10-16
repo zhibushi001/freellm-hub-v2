@@ -1250,6 +1250,86 @@ export default function Channels() {
   );
 }
 
+/**
+ * 模型勾选列表: 搜索过滤 + 全选筛选项/反选筛选项/清空 + 勾选行。
+ * 「添加 API Key」与「编辑 Key」两个弹窗共用 —— 修复: 模型一多只能干滚, 无法快速搜索。
+ */
+function ModelCheckList({ available, selected, onChange }: { available: string[]; selected: Set<string>; onChange: (next: Set<string>) => void }) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const sorted = [...available].sort();
+  const filtered = q ? sorted.filter(m => m.toLowerCase().includes(q)) : sorted;
+
+  const toggle = (m: string) => {
+    const next = new Set(selected);
+    if (next.has(m)) next.delete(m); else next.add(m);
+    onChange(next);
+  };
+  const selectFiltered = () => onChange(new Set([...selected, ...filtered]));
+  const invertFiltered = () => {
+    const next = new Set(selected);
+    for (const m of filtered) {
+      if (next.has(m)) next.delete(m); else next.add(m);
+    }
+    onChange(next);
+  };
+
+  return (
+    <div>
+      <div className="px-2.5 py-1.5 border-b border-slate-200 dark:border-slate-700 space-y-1.5">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="搜索模型名…"
+          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+        />
+        <div className="flex items-center gap-1.5 text-xs">
+          <button
+            type="button"
+            onClick={selectFiltered}
+            className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 font-medium"
+          >
+            全选{q ? '筛选项' : ''}
+          </button>
+          <button
+            type="button"
+            onClick={invertFiltered}
+            className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 font-medium"
+          >
+            反选{q ? '筛选项' : ''}
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange(new Set())}
+            className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 font-medium"
+          >
+            清空
+          </button>
+          <span className="ml-auto text-slate-400">{filtered.length} / {available.length}</span>
+        </div>
+      </div>
+      <div className="max-h-44 overflow-y-auto py-1">
+        {filtered.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-slate-400">没有匹配的模型</div>
+        ) : (
+          filtered.map(m => (
+            <label key={m} className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected.has(m)}
+                onChange={() => toggle(m)}
+                className="w-3.5 h-3.5 rounded accent-indigo-600"
+              />
+              <code className="text-xs text-slate-700 dark:text-slate-300 font-mono truncate">{m}</code>
+            </label>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AddKeyButton({ channelId, onAdded }: { channelId: number; onAdded: () => void }) {
   const [show, setShow] = useState(false);
   const [keyName, setKeyName] = useState('');
@@ -1273,14 +1353,6 @@ function AddKeyButton({ channelId, onAdded }: { channelId: number; onAdded: () =
     setRestrictModels(false);
     loadModels();
     setShow(true);
-  };
-
-  const toggleModel = (m: string) => {
-    setSelectedModels(prev => {
-      const next = new Set(prev);
-      if (next.has(m)) next.delete(m); else next.add(m);
-      return next;
-    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1375,32 +1447,13 @@ function AddKeyButton({ channelId, onAdded }: { channelId: number; onAdded: () =
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   {availableModels.length === 0 ? '暂无可发现的模型' : `已选 ${selectedModels.size} / ${availableModels.length}`}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedModels(selectedModels.size === availableModels.length ? new Set() : new Set(availableModels))}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-                >
-                  {selectedModels.size === availableModels.length && availableModels.length > 0 ? '清空' : '全选'}
-                </button>
               </div>
               {availableModels.length === 0 ? (
                 <div className="px-3 py-3 text-xs text-slate-400">
                   没有可用模型列表。可先「获取模型」探测，或添加 Key 后在服务端探测。
                 </div>
               ) : (
-                <div className="max-h-44 overflow-y-auto py-1">
-                  {availableModels.map(m => (
-                    <label key={m} className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedModels.has(m)}
-                        onChange={() => toggleModel(m)}
-                        className="w-3.5 h-3.5 rounded accent-indigo-600"
-                      />
-                      <code className="text-xs text-slate-700 dark:text-slate-300 font-mono truncate">{m}</code>
-                    </label>
-                  ))}
-                </div>
+                <ModelCheckList available={availableModels} selected={selectedModels} onChange={setSelectedModels} />
               )}
             </div>
           )}
@@ -1456,14 +1509,6 @@ function KeyRow({ key_, channelId, onDelete, onEdit }: { key_: Key; channelId: n
       .then(setAvailableModels)
       .catch(() => setAvailableModels([]));
     setEditing(true);
-  };
-
-  const toggleEditModel = (m: string) => {
-    setEditAllowedModels(prev => {
-      const next = new Set(prev);
-      if (next.has(m)) next.delete(m); else next.add(m);
-      return next;
-    });
   };
 
   const handleToggleKey = async () => {
@@ -1585,13 +1630,6 @@ function KeyRow({ key_, channelId, onDelete, onEdit }: { key_: Key; channelId: n
                     ? '暂无可发现的模型'
                     : `已选 ${editAllowedModels.size} / ${availableModels.length}`}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setEditAllowedModels(editAllowedModels.size === availableModels.length ? new Set() : new Set(availableModels))}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-                >
-                  {editAllowedModels.size === availableModels.length && availableModels.length > 0 ? '清空' : '全选'}
-                </button>
               </div>
               {availableModels.length === 0 ? (
                 <div className="px-3 py-3 text-xs text-slate-400">
@@ -1599,19 +1637,7 @@ function KeyRow({ key_, channelId, onDelete, onEdit }: { key_: Key; channelId: n
                   {editAllowedModels.size > 0 && <code className="ml-1">{Array.from(editAllowedModels).join(', ')}</code>}
                 </div>
               ) : (
-                <div className="max-h-40 overflow-y-auto py-1">
-                  {availableModels.map(m => (
-                    <label key={m} className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editAllowedModels.has(m)}
-                        onChange={() => toggleEditModel(m)}
-                        className="w-3.5 h-3.5 rounded accent-indigo-600"
-                      />
-                      <code className="text-xs text-slate-700 dark:text-slate-300 font-mono truncate">{m}</code>
-                    </label>
-                  ))}
-                </div>
+                <ModelCheckList available={availableModels} selected={editAllowedModels} onChange={setEditAllowedModels} />
               )}
             </div>
           )}
