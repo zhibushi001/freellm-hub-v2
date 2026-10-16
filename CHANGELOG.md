@@ -3,6 +3,42 @@
 所有本项目的显著变更都记录在此。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
 
+## [灾难恢复] - 2026-10-17
+
+> 2026-10-16 23:31~23:38 经确认执行的全量清理删除了 zbs 工作区、全部 Docker 卷与镜像
+> (数据卷已从 10-16 01:14 备份三件套重建)。本节记录从"参与记录 + 构建缓存"中找回的一切。
+
+### 找回清单 (本次提交)
+
+- **`040_free_tier_enhancements.sql` / `041_verify_free_tiers.sql`** — 从 Docker
+  BuildKit overlay2 构建层逐字节提取, **sha256[:32] 与迁移台账校验和完全一致**
+  (`e0536286…` / `f78f14ff…`)。内容: providers 新增 `requires_card` / `signup_barrier`
+  列 + 免费档注册门槛回填 + 已下线 provider 清理 + cohere v2 修正 (2026-10-09/10 应用)。
+  恢复后 `migrations_orphaned` 2 → 0, 无需动台账。
+- **`chatService.ts` 流式超时 F12 (30s→60s)** — 同层找回, 与作者会话记录逐字节互证。
+- **`Channels.tsx` 模型搜索 UI (`ModelCheckList`, 原 `9c827a9`)** — 从未推送、随删除
+  丢失; 从本会话 (a307f7f4) 的 5 条 edit 原文重放, 附带原 CHANGELOG 两条记录
+  (去除了当年的重复插入)。
+- **CHANGELOG / 本节** — 文档级恢复与增补。
+
+### 恢复链路 (考古过程备查)
+
+1. `freellm-snapshot-pre-cleanup-20260929-235022.tar.gz` → 09-29 快照目录 (误恢复主体)
+2. GitHub `zhibushi001/freellm-hub-v2` main = `148d009` (推送止于 10-03 23:00) → 完整
+   35 条历史 clone = 本仓库基线
+3. `/vol1/docker/overlay2` 构建层 (root 容器提取) → 040/041 与 F12 终态
+4. DSH 会话库 (`~/sessions/*.jsonl.zstd`) → 我方未推送提交的 edit 原文
+
+### 确认损失 (不可考)
+
+- **10-16 白天约 22 小时 usage_logs** (原卷删除窗口 10-16 01:14→23:30)
+- **客户端 5 处未提交 WIP 的最终态**: `freellm-hub-client/src/api.ts` /
+  `pages/API.tsx` / `pages/Cache.tsx` / `pages/Channels.tsx` 增量 / `moonshot.svg`
+  删除 — 151 个会话无 edit/bash 痕迹、所有构建层未捕获 (期间无前端构建)
+- `getUsageDaily` 客户端提案 (09-30 工作层中发现, 后端从无 `/api/admin/usage/daily`
+  路由 — 废弃提案, 判定不恢复)
+- 10-04 之后的 test/ 文档微调 (test 不进镜像上下文)
+
 ## [开发中 / 迭代记录] - 2026-10-01 ~ 2026-10-03
 
 > 模型挑选弹窗三处入口补全、免费渠道对表 freellm.net、可疑端点实测、BACKLOG 作业清单落盘、路由第二轮修复 R1-R6 + 冷却策略 R7/R8 + 部署踩坑两则 + 台账孤儿行清理 + 部署链路三缺口补齐、**熔断器移除 + 限流冷却精度修复**。
@@ -36,6 +72,27 @@
   - **迁移 `039_cap_daily_rate_limit_cooldowns.sql`**: 存量晚于 UTC 午夜的
     `rate_limit` 冷却行统一收敛到午夜 +2min —— 被旧规则多关的 Key 按时自动回场。
   - 新增 `test/unit/rateLimitReset.test.ts`: 解析器、优先级、每日分支回退全覆盖。
+- **添加/编辑 Key 弹窗的模型列表支持快速搜索** (`freellm-hub-client/src/pages/Channels.tsx`):
+  抽共用 `ModelCheckList` 组件——搜索过滤 (大小写不敏感) + 全选筛选项 / 反选筛选项 /
+  清空 + 匹配计数, 替换「添加 API Key」与「编辑 Key」两处只能干滚的列表
+  (与既有 `ModelPickerModal` 交互语义一致)。
+
+### 流式超时 30s→60s — 推理模型晚高峰被硬砍成 502 (2026-10-08)
+
+> 用户报: Hermes 等 agent 频繁 `HTTP 502: 上游持续错误: Headers Timeout Error`,
+> "切换其他模型也总失败"。排查结论 = **上游变慢 × 我们的 30s 硬砍** 各占一半。
+
+- **硬证据**: ①当天 76 个 Headers Timeout **全部 stream=1**; ②成功样本
+  p50=5.2s / p90=25s / **p99=max=29.010s、零个超过 30s** —— 分布被 30s 刀切,
+  说明首响应 ≥30s 的请求全被 `chatService` 流式 `timeoutMs=30_000` 击毙;
+  ③失败按时段聚集 (13 点 29 次、21 点 20 次) = 上游拥堵窗口, 非网关故障。
+- **排除项**: 安全机制零嫌疑 (rate-limit 插件未注册、登录锁定只管后台、401 为公网
+  扫描器); undici 全局调度无 Agent 泄漏 (fd=18); 10-04~10-07 后端零提交;
+  实测经网关 1.1s / 直连 1.5s 成功; `Headers Timeout` 09-17 起就存在 (非新引入)。
+- **修复 F12** (`chatService.ts`): 流式 `timeoutMs` 30s → **60s** (与非流式对齐;
+  headers/body 双超时同源)。wall-clock budget 60s 不变, 客户端总等待仍有界。
+- **关联发现 (未处理)**: ch24 仍配置 `stealth/space-bunny-alpha` (10-05 已过期,
+  切到必 404 `No endpoints found`, 近3天4次) —— 待清理或换模型。
 
 ### 每日额度限流失效 + 误导性 no_keys 事故修复 (2026-10-03)
 
