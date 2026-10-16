@@ -248,7 +248,10 @@ export async function chatStream(
         body: JSON.stringify({ ...upstreamReq, stream: true }),
         // F11: 原来传0 → undici headersTimeout 被禁用, 上游 accept 了连接但不回包时
         // 请求永久挂起 (budget 只在 candidate 之间检查, 永远轮不到)
-        timeoutMs: 30_000,
+        // F12 (2026-10-08): 30s → 60s。证据: 成功样本 p99=29.01s 零超过 30s (分布被
+        // 刀切) + 76 个 Headers Timeout 全是流式 —— 商汤推理模型晚高峰首响应常 ≥30s,
+        // 30s 硬砍把"慢但能出"的请求全变 502。60s 与非流式对齐; budget 60s 仍兜底总时长。
+        timeoutMs: 60_000,
       }, null); // null: 统一在下面记录一次, 避免 httpStream 内部重复计数
     } catch (e: any) {
       const latencyMs = Date.now() - attemptStart;
